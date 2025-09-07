@@ -35,7 +35,8 @@ require('./models/Preferences');
 require('./models/Podcast');
 require('./models/LiveStream');
 require('./models/liveChatMessage');
-require('./models/PlaylistAnalytics'); 
+require('./models/PlaylistAnalytics');
+require('./models/WalPost'); 
 
 const app = express();
 
@@ -647,9 +648,12 @@ console.log("🎵 Configuration des routes de playlists...");
 
 // Router principal (toutes les routes /api/playlists/*)
 const playlistRoutes = require('./routes/api/playlistRoutes');
-// ⚠️ extractUser est déjà appliqué globalement plus haut (app.use(extractUser))
-//    donc req.user est disponible même sans protect.
 app.use('/api/playlists', playlistRoutes);
+
+// index.js
+const wallRoutes = require('./routes/api/wallRoutes');
+app.use('/api/wall', wallRoutes);
+
 
 // Routes publiques playlists (SEO / lecture publique)
 
