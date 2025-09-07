@@ -36,7 +36,7 @@ require('./models/Podcast');
 require('./models/LiveStream');
 require('./models/liveChatMessage');
 require('./models/PlaylistAnalytics');
-require('./models/WalPost'); 
+require('./models/WallPost'); 
 
 const app = express();
 
