@@ -130,6 +130,78 @@ exports.getVideoComments = async (req, res, next) => {
   }
 };
 
+
+// controllers/commentController.js - AJOUTEZ CETTE FONCTION
+
+/**
+ * @desc    Get comments for a post
+ * @route   GET /api/posts/:postId/comments
+ * @access  Public
+ */
+exports.getComments = async (req, res, next) => {
+  try {
+    const { postId } = req.params;
+    const { page = 1, limit = 10, sortBy = 'recent' } = req.query;
+    
+    // Validate post exists
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+    
+    // Sort options
+    let sortOptions;
+    switch (sortBy) {
+      case 'popular':
+        sortOptions = { likes: -1, creation_date: -1 };
+        break;
+      case 'oldest':
+        sortOptions = { creation_date: 1 };
+        break;
+      case 'recent':
+      default:
+        sortOptions = { creation_date: -1 };
+        break;
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Get comments for this post
+    const filter = {
+      post: postId,
+      statut: 'ACTIF',
+      parent_comment: null
+    };
+    
+    const total = await Comment.countDocuments(filter);
+    
+    const comments = await Comment.find(filter)
+      .populate('auteur', 'nom prenom photo_profil')
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+    
+    res.json({
+      success: true,
+      data: comments,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (err) {
+    console.error('Error getting post comments:', err);
+    next(err);
+  }
+};
+
+
 /**
  * @desc    Get replies for a comment
  * @route   GET /api/public/comments/:commentId/replies

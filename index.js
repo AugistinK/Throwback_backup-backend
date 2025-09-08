@@ -653,8 +653,8 @@ app.use('/api/playlists', playlistRoutes);
 // Ajouter ces lignes dans index.js (app.js)
 // Routes pour les posts et commentaires
 const postRoutes = require('./routes/api/posts');
-const commentRoutes = require('./routes/api/comments');
 app.use('/api/posts', postRoutes);
+const commentRoutes = require('./routes/api/comments');
 app.use('/api/comments', commentRoutes);
 
 
