@@ -23,6 +23,9 @@ router.post('/:id/like', protect, logAction('LIKE_POST', 'Like d\'un post'), pos
 router.post('/:id/share', protect, logAction('PARTAGE_POST', 'Partage d\'un post'), postController.sharePost);
 router.post('/:id/report', protect, logAction('SIGNALEMENT_POST', 'Signalement d\'un post'), postController.reportPost);
 
+router.get('/:videoId/comments', optionalAuth, commentController.getVideoComments);
+router.post('/:videoId/comments', protect, commentController.addComment);
+
 // Routes pour les commentaires
 router.get('/:postId/comments', optionalAuth, commentController.getComments);
 router.post('/:postId/comments', protect, logAction('AJOUT_COMMENTAIRE', 'Ajout d\'un commentaire'), commentController.addComment);
