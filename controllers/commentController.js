@@ -131,8 +131,6 @@ exports.getVideoComments = async (req, res, next) => {
 };
 
 
-// controllers/commentController.js - AJOUTEZ CETTE FONCTION
-
 /**
  * @desc    Get comments for a post
  * @route   GET /api/posts/:postId/comments

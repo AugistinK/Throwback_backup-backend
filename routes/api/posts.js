@@ -8,12 +8,14 @@ const { logAction } = require('../../middlewares/loggingMiddleware');
 const optionalAuth = require('../../middlewares/optionalAuth');
 const uploadMiddleware = require('../../middlewares/upload.middleware');
 
-// Configuration multer pour les posts
-const uploadPost = uploadMiddleware.single('media');
+// Importer le middleware spécifique pour les posts
+const postUploadMiddleware = require('../../middlewares/upload.post.middleware');
 
 // Routes pour les posts
 router.get('/', optionalAuth, postController.getPosts);
-router.post('/', protect, uploadPost, logAction('CREATION_POST', 'Création d\'un post'), postController.createPost);
+
+// Utiliser le middleware spécifique pour les posts qui accepte les images
+router.post('/', protect, postUploadMiddleware.upload, postUploadMiddleware.handleMulterError, logAction('CREATION_POST', 'Création d\'un post'), postController.createPost);
 router.get('/:id', optionalAuth, postController.getPostById);
 router.put('/:id', protect, logAction('MODIFICATION_POST', 'Modification d\'un post'), postController.updatePost);
 router.delete('/:id', protect, logAction('SUPPRESSION_POST', 'Suppression d\'un post'), postController.deletePost);
@@ -22,9 +24,6 @@ router.delete('/:id', protect, logAction('SUPPRESSION_POST', 'Suppression d\'un 
 router.post('/:id/like', protect, logAction('LIKE_POST', 'Like d\'un post'), postController.likePost);
 router.post('/:id/share', protect, logAction('PARTAGE_POST', 'Partage d\'un post'), postController.sharePost);
 router.post('/:id/report', protect, logAction('SIGNALEMENT_POST', 'Signalement d\'un post'), postController.reportPost);
-
-router.get('/:videoId/comments', optionalAuth, commentController.getVideoComments);
-router.post('/:videoId/comments', protect, commentController.addComment);
 
 // Routes pour les commentaires
 router.get('/:postId/comments', optionalAuth, commentController.getComments);

@@ -33,7 +33,7 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  // Types MIME acceptés
+  // Types MIME acceptés - BEAUCOUP PLUS LARGES pour les posts
   const acceptedTypes = [
     'image/jpeg', 
     'image/png', 
@@ -41,13 +41,15 @@ const fileFilter = (req, file, cb) => {
     'image/webp',
     'video/mp4', 
     'video/webm',
+    'video/quicktime',
+    'video/x-msvideo',
     'audio/mpeg',
     'audio/mp3',
     'audio/wav'
   ];
   
   if (!acceptedTypes.includes(file.mimetype)) {
-    return cb(new Error('Format de fichier non supporté. Formats acceptés: JPG, PNG, GIF, WEBP, MP4, WEBM, MP3, WAV'), false);
+    return cb(new Error('Format de fichier non supporté. Formats acceptés: JPG, PNG, GIF, WEBP, MP4, WebM, MOV, AVI, MP3, WAV'), false);
   }
   
   cb(null, true);
