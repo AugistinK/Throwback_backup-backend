@@ -36,7 +36,7 @@ require('./models/Podcast');
 require('./models/LiveStream');
 require('./models/liveChatMessage');
 require('./models/PlaylistAnalytics');
-require('./models/WallPost'); 
+require('./models/Post'); 
 
 const app = express();
 
@@ -650,9 +650,12 @@ console.log("🎵 Configuration des routes de playlists...");
 const playlistRoutes = require('./routes/api/playlistRoutes');
 app.use('/api/playlists', playlistRoutes);
 
-// index.js
-const wallRoutes = require('./routes/api/wallRoutes');
-app.use('/api/wall', wallRoutes);
+// Ajouter ces lignes dans index.js (app.js)
+// Routes pour les posts et commentaires
+const postRoutes = require('./routes/api/posts');
+// const commentRoutes = require('./routes/api/comments');
+app.use('/api/posts', postRoutes);
+// app.use('/api/comments', commentRoutes);
 
 
 // Routes publiques playlists (SEO / lecture publique)
