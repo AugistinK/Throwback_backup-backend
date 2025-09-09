@@ -131,130 +131,7 @@ exports.getVideoComments = async (req, res, next) => {
   }
 };
 
-/**
- * @desc    Get comments for a post
- * @route   GET /api/posts/:postId/comments
- * @access  Public
- */
-exports.getPostComments = async (req, res, next) => {
-  try {
-    const { postId } = req.params;
-    const { page = 1, limit = 10, sortBy = 'recent' } = req.query;
-    
-    // Validate post exists
-    const post = await Post.findById(postId);
-    if (!post) {
-      return res.status(404).json({
-        success: false,
-        message: 'Post not found'
-      });
-    }
-    
-    // Sort options
-    let sortOptions;
-    switch (sortBy) {
-      case 'popular':
-        sortOptions = { likes: -1, creation_date: -1 };
-        break;
-      case 'oldest':
-        sortOptions = { creation_date: 1 };
-        break;
-      case 'recent':
-      default:
-        sortOptions = { creation_date: -1 };
-        break;
-    }
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    // Get top-level comments (not replies)
-    const filter = {
-      post_id: postId,
-      statut: 'ACTIF',
-      parent_comment: null
-    };
-    
-    const total = await Comment.countDocuments(filter);
-    
-    const comments = await Comment.find(filter)
-      .populate('auteur', 'nom prenom photo_profil')
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
-    
-    // Get replies for each comment
-    const commentsWithReplies = await Promise.all(
-      comments.map(async (comment) => {
-        const replies = await Comment.find({
-          parent_comment: comment._id,
-          statut: 'ACTIF'
-        })
-        .populate('auteur', 'nom prenom photo_profil')
-        .sort({ creation_date: 1 })
-        .limit(5) // Limit replies shown initially
-        .lean();
-        
-        // Get total reply count
-        const totalReplies = await Comment.countDocuments({
-          parent_comment: comment._id,
-          statut: 'ACTIF'
-        });
-        
-        // Check user interactions if authenticated
-        let userInteraction = {};
-        if (req.user) {
-          const userLike = await Like.findOne({
-            type_entite: 'COMMENT',
-            entite_id: comment._id,
-            utilisateur: req.user._id
-          });
-          
-          userInteraction = {
-            liked: userLike?.type_action === 'LIKE',
-            disliked: userLike?.type_action === 'DISLIKE'
-          };
-          
-          // Check replies interactions
-          for (let reply of replies) {
-            const replyLike = await Like.findOne({
-              type_entite: 'COMMENT',
-              entite_id: reply._id,
-              utilisateur: req.user._id
-            });
-            
-            reply.userInteraction = {
-              liked: replyLike?.type_action === 'LIKE',
-              disliked: replyLike?.type_action === 'DISLIKE'
-            };
-          }
-        }
-        
-        return {
-          ...comment,
-          userInteraction,
-          replies,
-          totalReplies,
-          hasMoreReplies: totalReplies > 5
-        };
-      })
-    );
-    
-    res.json({
-      success: true,
-      data: commentsWithReplies,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        totalPages: Math.ceil(total / parseInt(limit))
-      }
-    });
-  } catch (err) {
-    console.error('Error getting post comments:', err);
-    next(err);
-  }
-};
+
 
 /**
  * @desc    Get replies for a comment
@@ -407,105 +284,7 @@ exports.addVideoComment = async (req, res, next) => {
   }
 };
 
-/**
- * @desc    Add a comment to a post
- * @route   POST /api/posts/:postId/comments
- * @access  Private
- */
-exports.addPostComment = async (req, res, next) => {
-  try {
-    const { postId } = req.params;
-    const { contenu, parentId } = req.body;
-    const userId = req.user._id;
-    
-    // Validate input
-    if (!contenu || contenu.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Comment content is required'
-      });
-    }
-    
-    if (contenu.trim().length > 500) {
-      return res.status(400).json({
-        success: false,
-        message: 'Comment cannot exceed 500 characters'
-      });
-    }
-    
-    // Validate post exists
-    const post = await Post.findById(postId);
-    if (!post) {
-      return res.status(404).json({
-        success: false,
-        message: 'Post not found'
-      });
-    }
-    
-    // Validate parent comment if provided
-    if (parentId) {
-      const parentComment = await Comment.findById(parentId);
-      if (!parentComment) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid parent comment'
-        });
-      }
-    }
-    
-    // Create comment
-    const comment = await Comment.create({
-      contenu: contenu.trim(),
-      video_id: null,
-      post_id: postId,
-      auteur: userId,
-      parent_comment: parentId || null
-    });
-    
-    // Populate author info
-    await comment.populate('auteur', 'nom prenom photo_profil');
-    
-    // Add comment to post's commentaires array if it's a top-level comment
-    if (!parentId) {
-      if (!post.commentaires) post.commentaires = [];
-      post.commentaires.push(comment._id);
-      await post.save();
-    }
-    
-    // Log action
-    await LogAction.create({
-      type_action: 'POST_COMMENT_ADDED',
-      description_action: `Added comment on post`,
-      id_user: userId,
-      ip_address: req.ip,
-      user_agent: req.headers['user-agent'],
-      created_by: userId,
-      donnees_supplementaires: {
-        post_id: postId,
-        comment_id: comment._id,
-        is_reply: !!parentId
-      }
-    });
-    
-    res.status(201).json({
-      success: true,
-      message: 'Comment added successfully',
-      data: {
-        ...comment.toObject(),
-        userInteraction: {
-          liked: false,
-          disliked: false
-        },
-        replies: [],
-        totalReplies: 0,
-        hasMoreReplies: false
-      }
-    });
-  } catch (err) {
-    console.error('Error adding post comment:', err);
-    next(err);
-  }
-};
+
 
 /**
  * @desc    Update a comment
@@ -825,5 +604,243 @@ exports.reportComment = async (req, res, next) => {
   } catch (err) {
     console.error('Error reporting comment:', err);
     next(err);
+  }
+};
+
+
+/**
+ * @desc    Get comments for a post
+ * @route   GET /api/posts/:postId/comments
+ * @access  Public
+ */
+exports.getPostComments = async (req, res, next) => {
+  try {
+    const { postId } = req.params;
+    const { page = 1, limit = 10, sortBy = 'recent' } = req.query;
+    
+    // Validate post exists
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+    
+    // Sort options
+    let sortOptions;
+    switch (sortBy) {
+      case 'popular':
+        sortOptions = { likes: -1, creation_date: -1 };
+        break;
+      case 'oldest':
+        sortOptions = { creation_date: 1 };
+        break;
+      case 'recent':
+      default:
+        sortOptions = { creation_date: -1 };
+        break;
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Get top-level comments (not replies)
+    const filter = {
+      post_id: postId,
+      statut: 'ACTIF',
+      parent_comment: null
+    };
+    
+    const total = await Comment.countDocuments(filter);
+    
+    const comments = await Comment.find(filter)
+      .populate('auteur', 'nom prenom photo_profil')
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+    
+    // Get replies for each comment
+    const commentsWithReplies = await Promise.all(
+      comments.map(async (comment) => {
+        const replies = await Comment.find({
+          parent_comment: comment._id,
+          statut: 'ACTIF'
+        })
+        .populate('auteur', 'nom prenom photo_profil')
+        .sort({ creation_date: 1 })
+        .limit(5) // Limit replies shown initially
+        .lean();
+        
+        // Get total reply count
+        const totalReplies = await Comment.countDocuments({
+          parent_comment: comment._id,
+          statut: 'ACTIF'
+        });
+        
+        // Check user interactions if authenticated
+        let userInteraction = {};
+        if (req.user) {
+          const userLike = await Like.findOne({
+            type_entite: 'COMMENT',
+            entite_id: comment._id,
+            utilisateur: req.user._id
+          });
+          
+          userInteraction = {
+            liked: userLike?.type_action === 'LIKE',
+            disliked: userLike?.type_action === 'DISLIKE'
+          };
+          
+          // Check replies interactions
+          for (let reply of replies) {
+            const replyLike = await Like.findOne({
+              type_entite: 'COMMENT',
+              entite_id: reply._id,
+              utilisateur: req.user._id
+            });
+            
+            reply.userInteraction = {
+              liked: replyLike?.type_action === 'LIKE',
+              disliked: replyLike?.type_action === 'DISLIKE'
+            };
+          }
+        }
+        
+        return {
+          ...comment,
+          userInteraction,
+          replies,
+          totalReplies,
+          hasMoreReplies: totalReplies > 5
+        };
+      })
+    );
+    
+    // IMPORTANT: Ensure consistent response format
+    res.json({
+      success: true,
+      data: commentsWithReplies,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (err) {
+    console.error('Error getting post comments:', err);
+    // Pass to error handler with consistent format
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de la récupération des commentaires",
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+/**
+ * @desc    Add a comment to a post
+ * @route   POST /api/posts/:postId/comments
+ * @access  Private
+ */
+exports.addPostComment = async (req, res, next) => {
+  try {
+    const { postId } = req.params;
+    const { contenu, parentId } = req.body;
+    const userId = req.user._id;
+    
+    // Validate input
+    if (!contenu || contenu.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comment content is required'
+      });
+    }
+    
+    if (contenu.trim().length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comment cannot exceed 500 characters'
+      });
+    }
+    
+    // Validate post exists
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+    
+    // Validate parent comment if provided
+    if (parentId) {
+      const parentComment = await Comment.findById(parentId);
+      if (!parentComment) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid parent comment'
+        });
+      }
+    }
+    
+    // Create comment
+    const comment = await Comment.create({
+      contenu: contenu.trim(),
+      video_id: null,
+      post_id: postId,
+      auteur: userId,
+      parent_comment: parentId || null,
+      statut: 'ACTIF'
+    });
+    
+    // Populate author info
+    await comment.populate('auteur', 'nom prenom photo_profil');
+    
+    // Add comment to post's commentaires array if it's a top-level comment
+    if (!parentId) {
+      if (!post.commentaires) post.commentaires = [];
+      post.commentaires.push(comment._id);
+      await post.save();
+    }
+    
+    // Log action
+    await LogAction.create({
+      type_action: 'POST_COMMENT_ADDED',
+      description_action: `Added comment on post`,
+      id_user: userId,
+      ip_address: req.ip,
+      user_agent: req.headers['user-agent'],
+      created_by: userId,
+      donnees_supplementaires: {
+        post_id: postId,
+        comment_id: comment._id,
+        is_reply: !!parentId
+      }
+    });
+    
+    // IMPORTANT: Ensure consistent response format
+    res.status(201).json({
+      success: true,
+      message: 'Comment added successfully',
+      data: {
+        ...comment.toObject(),
+        userInteraction: {
+          liked: false,
+          disliked: false
+        },
+        replies: [],
+        totalReplies: 0,
+        hasMoreReplies: false
+      }
+    });
+  } catch (err) {
+    console.error('Error adding post comment:', err);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de l'ajout du commentaire",
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 };
