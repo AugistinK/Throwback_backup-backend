@@ -1,5 +1,6 @@
 // controllers/commentController.js
 const Comment = require('../models/Comment');
+const Post = require('../models/Post');
 const Video = require('../models/Video');
 const Like = require('../models/Like');
 const LogAction = require('../models/LogAction');
@@ -130,13 +131,12 @@ exports.getVideoComments = async (req, res, next) => {
   }
 };
 
-
 /**
  * @desc    Get comments for a post
  * @route   GET /api/posts/:postId/comments
  * @access  Public
  */
-exports.getComments = async (req, res, next) => {
+exports.getPostComments = async (req, res, next) => {
   try {
     const { postId } = req.params;
     const { page = 1, limit = 10, sortBy = 'recent' } = req.query;
@@ -167,9 +167,9 @@ exports.getComments = async (req, res, next) => {
     
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Get comments for this post
+    // Get top-level comments (not replies)
     const filter = {
-      post: postId,
+      post_id: postId,
       statut: 'ACTIF',
       parent_comment: null
     };
@@ -183,9 +183,66 @@ exports.getComments = async (req, res, next) => {
       .limit(parseInt(limit))
       .lean();
     
+    // Get replies for each comment
+    const commentsWithReplies = await Promise.all(
+      comments.map(async (comment) => {
+        const replies = await Comment.find({
+          parent_comment: comment._id,
+          statut: 'ACTIF'
+        })
+        .populate('auteur', 'nom prenom photo_profil')
+        .sort({ creation_date: 1 })
+        .limit(5) // Limit replies shown initially
+        .lean();
+        
+        // Get total reply count
+        const totalReplies = await Comment.countDocuments({
+          parent_comment: comment._id,
+          statut: 'ACTIF'
+        });
+        
+        // Check user interactions if authenticated
+        let userInteraction = {};
+        if (req.user) {
+          const userLike = await Like.findOne({
+            type_entite: 'COMMENT',
+            entite_id: comment._id,
+            utilisateur: req.user._id
+          });
+          
+          userInteraction = {
+            liked: userLike?.type_action === 'LIKE',
+            disliked: userLike?.type_action === 'DISLIKE'
+          };
+          
+          // Check replies interactions
+          for (let reply of replies) {
+            const replyLike = await Like.findOne({
+              type_entite: 'COMMENT',
+              entite_id: reply._id,
+              utilisateur: req.user._id
+            });
+            
+            reply.userInteraction = {
+              liked: replyLike?.type_action === 'LIKE',
+              disliked: replyLike?.type_action === 'DISLIKE'
+            };
+          }
+        }
+        
+        return {
+          ...comment,
+          userInteraction,
+          replies,
+          totalReplies,
+          hasMoreReplies: totalReplies > 5
+        };
+      })
+    );
+    
     res.json({
       success: true,
-      data: comments,
+      data: commentsWithReplies,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -199,10 +256,9 @@ exports.getComments = async (req, res, next) => {
   }
 };
 
-
 /**
  * @desc    Get replies for a comment
- * @route   GET /api/public/comments/:commentId/replies
+ * @route   GET /api/comments/:commentId/replies
  * @access  Public
  */
 exports.getCommentReplies = async (req, res, next) => {
@@ -263,7 +319,7 @@ exports.getCommentReplies = async (req, res, next) => {
  * @route   POST /api/public/videos/:videoId/comments
  * @access  Private
  */
-exports.addComment = async (req, res, next) => {
+exports.addVideoComment = async (req, res, next) => {
   try {
     const { videoId } = req.params;
     const { contenu, parent_comment } = req.body;
@@ -296,7 +352,7 @@ exports.addComment = async (req, res, next) => {
     // Validate parent comment if provided
     if (parent_comment) {
       const parentComment = await Comment.findById(parent_comment);
-      if (!parentComment || !parentComment.video_id.equals(videoId)) {
+      if (!parentComment) {
         return res.status(400).json({
           success: false,
           message: 'Invalid parent comment'
@@ -308,6 +364,7 @@ exports.addComment = async (req, res, next) => {
     const comment = await Comment.create({
       contenu: contenu.trim(),
       video_id: videoId,
+      post_id: null,
       auteur: userId,
       parent_comment: parent_comment || null
     });
@@ -345,14 +402,114 @@ exports.addComment = async (req, res, next) => {
       }
     });
   } catch (err) {
-    console.error('Error adding comment:', err);
+    console.error('Error adding video comment:', err);
+    next(err);
+  }
+};
+
+/**
+ * @desc    Add a comment to a post
+ * @route   POST /api/posts/:postId/comments
+ * @access  Private
+ */
+exports.addPostComment = async (req, res, next) => {
+  try {
+    const { postId } = req.params;
+    const { contenu, parentId } = req.body;
+    const userId = req.user._id;
+    
+    // Validate input
+    if (!contenu || contenu.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comment content is required'
+      });
+    }
+    
+    if (contenu.trim().length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comment cannot exceed 500 characters'
+      });
+    }
+    
+    // Validate post exists
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+    
+    // Validate parent comment if provided
+    if (parentId) {
+      const parentComment = await Comment.findById(parentId);
+      if (!parentComment) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid parent comment'
+        });
+      }
+    }
+    
+    // Create comment
+    const comment = await Comment.create({
+      contenu: contenu.trim(),
+      video_id: null,
+      post_id: postId,
+      auteur: userId,
+      parent_comment: parentId || null
+    });
+    
+    // Populate author info
+    await comment.populate('auteur', 'nom prenom photo_profil');
+    
+    // Add comment to post's commentaires array if it's a top-level comment
+    if (!parentId) {
+      if (!post.commentaires) post.commentaires = [];
+      post.commentaires.push(comment._id);
+      await post.save();
+    }
+    
+    // Log action
+    await LogAction.create({
+      type_action: 'POST_COMMENT_ADDED',
+      description_action: `Added comment on post`,
+      id_user: userId,
+      ip_address: req.ip,
+      user_agent: req.headers['user-agent'],
+      created_by: userId,
+      donnees_supplementaires: {
+        post_id: postId,
+        comment_id: comment._id,
+        is_reply: !!parentId
+      }
+    });
+    
+    res.status(201).json({
+      success: true,
+      message: 'Comment added successfully',
+      data: {
+        ...comment.toObject(),
+        userInteraction: {
+          liked: false,
+          disliked: false
+        },
+        replies: [],
+        totalReplies: 0,
+        hasMoreReplies: false
+      }
+    });
+  } catch (err) {
+    console.error('Error adding post comment:', err);
     next(err);
   }
 };
 
 /**
  * @desc    Update a comment
- * @route   PUT /api/public/comments/:commentId
+ * @route   PUT /api/comments/:commentId
  * @access  Private
  */
 exports.updateComment = async (req, res, next) => {
@@ -425,7 +582,7 @@ exports.updateComment = async (req, res, next) => {
 
 /**
  * @desc    Delete a comment
- * @route   DELETE /api/public/comments/:commentId
+ * @route   DELETE /api/comments/:commentId
  * @access  Private
  */
 exports.deleteComment = async (req, res, next) => {
@@ -471,6 +628,15 @@ exports.deleteComment = async (req, res, next) => {
       }
     );
     
+    // Remove from post's commentaires array if it's a post comment and top-level
+    if (comment.post_id && !comment.parent_comment) {
+      const post = await Post.findById(comment.post_id);
+      if (post) {
+        post.commentaires = post.commentaires.filter(id => !id.equals(commentId));
+        await post.save();
+      }
+    }
+    
     res.json({
       success: true,
       message: 'Comment deleted successfully'
@@ -481,8 +647,11 @@ exports.deleteComment = async (req, res, next) => {
   }
 };
 
-
-
+/**
+ * @desc    Like a comment
+ * @route   POST /api/comments/:commentId/like
+ * @access  Private
+ */
 exports.likeComment = async (req, res, next) => {
   try {
     const { commentId } = req.params;
@@ -517,7 +686,7 @@ exports.likeComment = async (req, res, next) => {
       await Like.create({
         type_entite: 'COMMENT',
         type_entite_model: 'Comment',
-        entite_id: commentId, // ⚠️ bug corrigé (videoId -> commentId)
+        entite_id: commentId,
         utilisateur: userId,
         type_action: 'LIKE'
       });
@@ -531,7 +700,9 @@ exports.likeComment = async (req, res, next) => {
 };
 
 /**
- * POST /api/public/comments/:commentId/dislike
+ * @desc    Dislike a comment
+ * @route   POST /api/comments/:commentId/dislike
+ * @access  Private
  */
 exports.dislikeComment = async (req, res, next) => {
   try {
@@ -580,10 +751,9 @@ exports.dislikeComment = async (req, res, next) => {
   }
 };
 
-
 /**
  * @desc    Report a comment
- * @route   POST /api/public/comments/:commentId/report
+ * @route   POST /api/comments/:commentId/report
  * @access  Private
  */
 exports.reportComment = async (req, res, next) => {

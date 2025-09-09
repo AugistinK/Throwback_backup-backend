@@ -16,6 +16,7 @@ router.get('/', optionalAuth, postController.getPosts);
 
 // Utiliser le middleware spécifique pour les posts qui accepte les images
 router.post('/', protect, postUploadMiddleware.upload, postUploadMiddleware.handleMulterError, logAction('CREATION_POST', 'Création d\'un post'), postController.createPost);
+// router.post('/', protect, uploadPost, logAction('CREATION_POST', 'Création d\'un post'), postController.createPost);
 router.get('/:id', optionalAuth, postController.getPostById);
 router.put('/:id', protect, logAction('MODIFICATION_POST', 'Modification d\'un post'), postController.updatePost);
 router.delete('/:id', protect, logAction('SUPPRESSION_POST', 'Suppression d\'un post'), postController.deletePost);
@@ -26,7 +27,7 @@ router.post('/:id/share', protect, logAction('PARTAGE_POST', 'Partage d\'un post
 router.post('/:id/report', protect, logAction('SIGNALEMENT_POST', 'Signalement d\'un post'), postController.reportPost);
 
 // Routes pour les commentaires
-router.get('/:postId/comments', optionalAuth, commentController.getComments);
-router.post('/:postId/comments', protect, logAction('AJOUT_COMMENTAIRE', 'Ajout d\'un commentaire'), commentController.addComment);
+router.get('/:postId/comments', optionalAuth, commentController.getPostComments);
+router.post('/:postId/comments', protect, logAction('AJOUT_COMMENTAIRE_POST', 'Ajout d\'un commentaire sur un post'), commentController.addPostComment);
 
 module.exports = router;

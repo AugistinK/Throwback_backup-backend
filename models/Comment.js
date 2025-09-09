@@ -17,11 +17,17 @@ const commentSchema = new Schema({
     required: [true, 'L\'auteur du commentaire est requis']
   },
   
-  // Référence vers la vidéo commentée
+  // Référence vers la vidéo commentée (optionnelle si post_id est présent)
   video_id: {
     type: Schema.Types.ObjectId,
     ref: 'Video',
-    required: [true, 'La vidéo est requise pour un commentaire']
+    required: function() { return !this.post_id; }
+  },
+  
+  // Référence vers le post commenté (optionnel si video_id est présent)
+  post_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'Post'
   },
   
   // Commentaire parent (pour les réponses)
@@ -102,6 +108,7 @@ const commentSchema = new Schema({
 
 // Index pour optimiser les requêtes
 commentSchema.index({ video_id: 1, statut: 1 });
+commentSchema.index({ post_id: 1, statut: 1 });
 commentSchema.index({ auteur: 1 });
 commentSchema.index({ parent_comment: 1 });
 commentSchema.index({ creation_date: -1 });
@@ -109,10 +116,21 @@ commentSchema.index({ creation_date: -1 });
 // Index composé pour les commentaires actifs d'une vidéo
 commentSchema.index({ video_id: 1, statut: 1, parent_comment: 1 });
 
+// Index composé pour les commentaires actifs d'un post
+commentSchema.index({ post_id: 1, statut: 1, parent_comment: 1 });
+
 // Méthodes statiques utiles
-commentSchema.statics.getCommentsCount = function(videoId) {
+commentSchema.statics.getVideoCommentsCount = function(videoId) {
   return this.countDocuments({ 
     video_id: videoId, 
+    statut: 'ACTIF',
+    parent_comment: null
+  });
+};
+
+commentSchema.statics.getPostCommentsCount = function(postId) {
+  return this.countDocuments({ 
+    post_id: postId, 
     statut: 'ACTIF',
     parent_comment: null
   });
@@ -147,9 +165,9 @@ commentSchema.pre('save', function(next) {
     return next(error);
   }
   
-  // S'assurer que la vidéo est définie
-  if (!this.video_id) {
-    const error = new Error('La vidéo est requise pour créer un commentaire');
+  // S'assurer qu'au moins une référence (vidéo ou post) est définie
+  if (!this.video_id && !this.post_id) {
+    const error = new Error('Une vidéo ou un post est requis pour créer un commentaire');
     error.name = 'ValidationError';
     return next(error);
   }
@@ -175,21 +193,42 @@ commentSchema.pre('save', function(next) {
 // Middleware post-save pour mettre à jour les compteurs
 commentSchema.post('save', async function(doc) {
   try {
-    // Mettre à jour le compteur de commentaires de la vidéo
-    const Video = mongoose.model('Video');
-    const video = await Video.findById(doc.video_id);
-    
-    if (video) {
-      if (!video.meta) video.meta = {};
+    // Mettre à jour le compteur de commentaires de la vidéo ou du post
+    if (doc.video_id) {
+      const Video = mongoose.model('Video');
+      const video = await Video.findById(doc.video_id);
       
-      const commentCount = await mongoose.model('Comment').countDocuments({
-        video_id: doc.video_id,
-        statut: 'ACTIF',
-        parent_comment: null
-      });
+      if (video) {
+        if (!video.meta) video.meta = {};
+        
+        const commentCount = await mongoose.model('Comment').countDocuments({
+          video_id: doc.video_id,
+          statut: 'ACTIF',
+          parent_comment: null
+        });
+        
+        video.meta.commentCount = commentCount;
+        await video.save();
+      }
+    } else if (doc.post_id) {
+      const Post = mongoose.model('Post');
+      const post = await Post.findById(doc.post_id);
       
-      video.meta.commentCount = commentCount;
-      await video.save();
+      if (post) {
+        const commentCount = await mongoose.model('Comment').countDocuments({
+          post_id: doc.post_id,
+          statut: 'ACTIF',
+          parent_comment: null
+        });
+        
+        // Mettre à jour le nombre de commentaires du post
+        if (!post.commentaires) post.commentaires = [];
+        if (!post.commentaires.includes(doc._id) && !doc.parent_comment) {
+          post.commentaires.push(doc._id);
+        }
+        
+        await post.save();
+      }
     }
   } catch (error) {
     console.warn('Erreur lors de la mise à jour du compteur de commentaires:', error);
