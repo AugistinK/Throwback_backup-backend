@@ -650,12 +650,14 @@ console.log("🎵 Configuration des routes de playlists...");
 const playlistRoutes = require('./routes/api/playlistRoutes');
 app.use('/api/playlists', playlistRoutes);
 
-// Ajouter ces lignes dans index.js (app.js)
+
 // Routes pour les posts et commentaires
-const postRoutes = require('./routes/api/posts');
-app.use('/api/posts', postRoutes);
+
 const commentRoutes = require('./routes/api/comments');
 app.use('/api/comments', commentRoutes);
+const postRoutes = require('./routes/api/posts');
+app.use('/api/posts', postRoutes);
+
 
 
 // Routes publiques playlists (SEO / lecture publique)
