@@ -653,10 +653,10 @@ app.use('/api/playlists', playlistRoutes);
 
 // Routes pour les posts et commentaires
 
-const commentRoutes = require('./routes/api/comments');
-app.use('/api/comments', commentRoutes);
 const postRoutes = require('./routes/api/posts');
 app.use('/api/posts', postRoutes);
+
+app.use('/api/comments', require('./routes/api/comments'));
 
 
 
