@@ -290,6 +290,8 @@ exports.addVideoComment = async (req, res, next) => {
  * @route   POST /api/comments/:id/like
  * @access  Private
  */
+
+// controllers/commentController.js - Fonctions corrigées
 exports.likeComment = async (req, res, next) => {
   try {
     console.log(`Liking comment: ${req.params.id} by user: ${req.user.id}`);
@@ -311,26 +313,58 @@ exports.likeComment = async (req, res, next) => {
         await existingLike.deleteOne();
         comment.likes = Math.max((comment.likes || 0) - 1, 0);
         await comment.save();
-        return res.json({ success: true, message: 'Comment unliked', data: { liked: false, disliked: false, likes: comment.likes, dislikes: comment.dislikes } });
+        return res.json({ 
+          success: true, 
+          message: 'Comment unliked', 
+          data: { 
+            liked: false, 
+            disliked: false, 
+            likes: comment.likes, 
+            dislikes: comment.dislikes 
+          } 
+        });
       } else {
         existingLike.type_action = 'LIKE';
         await existingLike.save();
         comment.likes = (comment.likes || 0) + 1;
         comment.dislikes = Math.max((comment.dislikes || 0) - 1, 0);
         await comment.save();
-        return res.json({ success: true, message: 'Comment liked', data: { liked: true, disliked: false, likes: comment.likes, dislikes: comment.dislikes } });
+        return res.json({ 
+          success: true, 
+          message: 'Comment liked', 
+          data: { 
+            liked: true, 
+            disliked: false, 
+            likes: comment.likes, 
+            dislikes: comment.dislikes 
+          } 
+        });
       }
     } else {
+      // Création du like avec le nouveau modèle
       await Like.create({
         type_entite: 'COMMENT',
-        type_entite_model: 'Comment',
         entite_id: commentId,
         utilisateur: req.user.id,
-        type_action: 'LIKE'
+        type_action: 'LIKE',
+        // Ajout des champs optionnels selon le type de commentaire
+        post_id: comment.post_id,
+        video_id: comment.video_id
       });
+      
       comment.likes = (comment.likes || 0) + 1;
       await comment.save();
-      res.json({ success: true, message: 'Comment liked', data: { liked: true, disliked: false, likes: comment.likes, dislikes: comment.dislikes } });
+      
+      res.json({ 
+        success: true, 
+        message: 'Comment liked', 
+        data: { 
+          liked: true, 
+          disliked: false, 
+          likes: comment.likes, 
+          dislikes: comment.dislikes 
+        } 
+      });
     }
   } catch (err) {
     console.error("Error in likeComment:", err);
@@ -342,11 +376,6 @@ exports.likeComment = async (req, res, next) => {
   }
 };
 
-/**
- * @desc    Dislike a comment
- * @route   POST /api/comments/:id/dislike
- * @access  Private
- */
 exports.dislikeComment = async (req, res, next) => {
   try {
     console.log(`Disliking comment: ${req.params.id} by user: ${req.user.id}`);
@@ -368,26 +397,58 @@ exports.dislikeComment = async (req, res, next) => {
         await existingLike.deleteOne();
         comment.dislikes = Math.max((comment.dislikes || 0) - 1, 0);
         await comment.save();
-        return res.json({ success: true, message: 'Comment un-disliked', data: { liked: false, disliked: false, likes: comment.likes, dislikes: comment.dislikes } });
+        return res.json({ 
+          success: true, 
+          message: 'Comment un-disliked', 
+          data: { 
+            liked: false, 
+            disliked: false, 
+            likes: comment.likes, 
+            dislikes: comment.dislikes 
+          } 
+        });
       } else {
         existingLike.type_action = 'DISLIKE';
         await existingLike.save();
         comment.likes = Math.max((comment.likes || 0) - 1, 0);
         comment.dislikes = (comment.dislikes || 0) + 1;
         await comment.save();
-        return res.json({ success: true, message: 'Comment disliked', data: { liked: false, disliked: true, likes: comment.likes, dislikes: comment.dislikes } });
+        return res.json({ 
+          success: true, 
+          message: 'Comment disliked', 
+          data: { 
+            liked: false, 
+            disliked: true, 
+            likes: comment.likes, 
+            dislikes: comment.dislikes 
+          } 
+        });
       }
     } else {
+      // Création du dislike avec le nouveau modèle
       await Like.create({
         type_entite: 'COMMENT',
-        type_entite_model: 'Comment',
         entite_id: commentId, 
         utilisateur: req.user.id,
-        type_action: 'DISLIKE' 
+        type_action: 'DISLIKE',
+        // Ajout des champs optionnels selon le type de commentaire
+        post_id: comment.post_id,
+        video_id: comment.video_id
       });
+      
       comment.dislikes = (comment.dislikes || 0) + 1;
       await comment.save();
-      res.json({ success: true, message: 'Comment disliked', data: { liked: false, disliked: true, likes: comment.likes, dislikes: comment.dislikes } });
+      
+      res.json({ 
+        success: true, 
+        message: 'Comment disliked', 
+        data: { 
+          liked: false, 
+          disliked: true, 
+          likes: comment.likes, 
+          dislikes: comment.dislikes 
+        } 
+      });
     }
   } catch (err) {
     console.error("Error in dislikeComment:", err);
