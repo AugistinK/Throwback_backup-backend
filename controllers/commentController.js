@@ -284,14 +284,6 @@ exports.addVideoComment = async (req, res, next) => {
   }
 };
 
-
-/**
- * @desc    Like a comment
- * @route   POST /api/comments/:id/like
- * @access  Private
- */
-
-// controllers/commentController.js - Fonctions corrigées
 exports.likeComment = async (req, res, next) => {
   try {
     console.log(`Liking comment: ${req.params.id} by user: ${req.user.id}`);
@@ -302,6 +294,7 @@ exports.likeComment = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Comment not found' });
     }
 
+    // Rechercher un like existant avec le nouveau schéma
     const existingLike = await Like.findOne({
       type_entite: 'COMMENT',
       entite_id: commentId,
@@ -341,15 +334,15 @@ exports.likeComment = async (req, res, next) => {
         });
       }
     } else {
-      // Création du like avec le nouveau modèle
+      // Création avec les nouveaux champs requis
       await Like.create({
         type_entite: 'COMMENT',
         entite_id: commentId,
         utilisateur: req.user.id,
         type_action: 'LIKE',
-        // Ajout des champs optionnels selon le type de commentaire
-        post_id: comment.post_id,
-        video_id: comment.video_id
+        // Champs optionnels selon le type de commentaire
+        post_id: comment.post_id || null,
+        video_id: comment.video_id || null
       });
       
       comment.likes = (comment.likes || 0) + 1;
@@ -386,6 +379,7 @@ exports.dislikeComment = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Comment not found' });
     }
 
+    // Rechercher un like existant avec le nouveau schéma
     const existingLike = await Like.findOne({
       type_entite: 'COMMENT',
       entite_id: commentId,
@@ -425,15 +419,15 @@ exports.dislikeComment = async (req, res, next) => {
         });
       }
     } else {
-      // Création du dislike avec le nouveau modèle
+      // Création avec les nouveaux champs requis
       await Like.create({
         type_entite: 'COMMENT',
-        entite_id: commentId, 
+        entite_id: commentId,
         utilisateur: req.user.id,
         type_action: 'DISLIKE',
-        // Ajout des champs optionnels selon le type de commentaire
-        post_id: comment.post_id,
-        video_id: comment.video_id
+        // Champs optionnels selon le type de commentaire
+        post_id: comment.post_id || null,
+        video_id: comment.video_id || null
       });
       
       comment.dislikes = (comment.dislikes || 0) + 1;
