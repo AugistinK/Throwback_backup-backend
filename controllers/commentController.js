@@ -1,10 +1,10 @@
 // controllers/commentController.js
 const mongoose = require('mongoose');
-const Comment = require('./models/Comment');
-const Post = require('./models/Post');
-const Video = require('./models/Video');
-const Like = require('./models/Like');
-const LogAction = require('./models/LogAction');
+const Comment = require('../models/Comment');
+const Post = require('../models/Post');
+const Video = require('../models/Video');
+const Like = require('../models/Like');
+const LogAction = require('../models/LogAction');
 
 /**
  * UTIL: sécurise un ObjectId
