@@ -1,10 +1,396 @@
 // controllers/commentController.js
-const Comment = require('../models/Comment');
-const Post = require('../models/Post');
-const Video = require('../models/Video');
-const Like = require('../models/Like');
-const LogAction = require('../models/LogAction');
 const mongoose = require('mongoose');
+const Comment = require('./models/Comment');
+const Post = require('./models/Post');
+const Video = require('./models/Video');
+const Like = require('./models/Like');
+const LogAction = require('./models/LogAction');
+
+/**
+ * UTIL: sécurise un ObjectId
+ */
+const toObjectId = (id) => new mongoose.Types.ObjectId(id);
+
+/**
+ * IMPORTANT (migration): on supprime l’ancien index unique
+ * { utilisateur, video_id, type_like } qui génère E11000.
+ */
+let triedDropLegacyLikeIndex = false;
+async function dropLegacyLikeIndexIfAny() {
+  if (triedDropLegacyLikeIndex) return;
+  triedDropLegacyLikeIndex = true;
+  try {
+    // l'ancien nom d'index d’après tes logs: "utilisateur_1_video_id_1_type_like_1"
+    await Like.collection.dropIndex('utilisateur_1_video_id_1_type_like_1');
+    console.log('[Like] Ancien index supprimé');
+  } catch (e) {
+    // aucun souci si l’index n’existe pas
+    if (e.codeName !== 'IndexNotFound') {
+      console.warn('[Like] Suppression index legacy: ', e.message);
+    }
+  }
+}
+
+/**
+ * GET comments d’un post (mur)
+ * GET /api/posts/:postId/comments?page=&limit=
+ * Public
+ */
+exports.getPostComments = async (req, res, next) => {
+  try {
+    const { postId } = req.params;
+    const page = parseInt(req.query.page || '1', 10);
+    const limit = parseInt(req.query.limit || '10', 10);
+    const skip = (page - 1) * limit;
+
+    const post = await Post.findById(postId).lean();
+    if (!post) {
+      return res.status(404).json({ success: false, message: 'Post not found' });
+    }
+
+    const baseFilter = { post_id: postId, statut: 'ACTIF', parent_comment: null };
+
+    const total = await Comment.countDocuments(baseFilter);
+    const comments = await Comment.find(baseFilter)
+      .populate('auteur', 'nom prenom photo_profil')
+      .sort({ creation_date: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const userId = req.user?._id;
+
+    const withRepliesAndUI = await Promise.all(
+      comments.map(async (c) => {
+        const replies = await Comment.find({
+          parent_comment: c._id,
+          statut: 'ACTIF',
+        })
+          .populate('auteur', 'nom prenom photo_profil')
+          .sort({ creation_date: 1 })
+          .limit(5)
+          .lean();
+
+        const totalReplies = await Comment.countDocuments({
+          parent_comment: c._id,
+          statut: 'ACTIF',
+        });
+
+        let userInteraction = { liked: false, disliked: false };
+        if (userId) {
+          const like = await Like.findOne({
+            type_entite: 'COMMENT',
+            entite_id: c._id,
+            utilisateur: userId,
+          }).lean();
+          userInteraction = {
+            liked: like?.type_action === 'LIKE',
+            disliked: like?.type_action === 'DISLIKE',
+          };
+        }
+
+        // Interaction sur les réponses
+        if (userId) {
+          for (const r of replies) {
+            const rl = await Like.findOne({
+              type_entite: 'COMMENT',
+              entite_id: r._id,
+              utilisateur: userId,
+            }).lean();
+            r.userInteraction = {
+              liked: rl?.type_action === 'LIKE',
+              disliked: rl?.type_action === 'DISLIKE',
+            };
+          }
+        }
+
+        return {
+          ...c,
+          userInteraction,
+          replies,
+          totalReplies,
+          hasMoreReplies: totalReplies > 5,
+        };
+      })
+    );
+
+    return res.json({
+      success: true,
+      data: withRepliesAndUI,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error('Error getting post comments:', err);
+    next(err);
+  }
+};
+
+/**
+ * POST ajouter un commentaire à un post
+ * POST /api/posts/:postId/comments
+ * Private
+ */
+exports.addPostComment = async (req, res, next) => {
+  try {
+    const { postId } = req.params;
+    const { contenu, parentId } = req.body;
+    const userId = req.user._id;
+
+    if (!contenu || !contenu.trim()) {
+      return res.status(400).json({ success: false, message: 'Le contenu est requis' });
+    }
+
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ success: false, message: 'Post introuvable' });
+    }
+
+    if (parentId) {
+      const parent = await Comment.findById(parentId).lean();
+      if (!parent) {
+        return res.status(400).json({ success: false, message: 'Commentaire parent invalide' });
+      }
+    }
+
+    const comment = await Comment.create({
+      contenu: contenu.trim(),
+      post_id: postId,
+      video_id: null,
+      auteur: userId,
+      parent_comment: parentId || null,
+    });
+
+    await comment.populate('auteur', 'nom prenom photo_profil');
+
+    await LogAction.create({
+      type_action: 'COMMENT_ADDED',
+      description_action: `Added comment on post: ${post._id}`,
+      id_user: userId,
+      ip_address: req.ip,
+      user_agent: req.headers['user-agent'],
+      created_by: userId,
+      donnees_supplementaires: { post_id: postId, comment_id: comment._id, is_reply: !!parentId },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Commentaire ajouté',
+      data: {
+        ...comment.toObject(),
+        userInteraction: { liked: false, disliked: false },
+        replies: [],
+        totalReplies: 0,
+        hasMoreReplies: false,
+      },
+    });
+  } catch (err) {
+    console.error('Error adding post comment:', err);
+    next(err);
+  }
+};
+
+/**
+ * PUT modifier un commentaire (auteur uniquement)
+ * PUT /api/comments/:id
+ * Private
+ */
+exports.updateComment = async (req, res, next) => {
+  try {
+    const { contenu } = req.body;
+    const comment = await Comment.findById(req.params.id);
+    if (!comment || comment.statut !== 'ACTIF') {
+      return res.status(404).json({ success: false, message: 'Commentaire introuvable' });
+    }
+    if (String(comment.auteur) !== String(req.user._id)) {
+      return res.status(403).json({ success: false, message: 'Action non autorisée' });
+    }
+    if (!contenu || !contenu.trim()) {
+      return res.status(400).json({ success: false, message: 'Le contenu est requis' });
+    }
+
+    comment.contenu = contenu.trim();
+    await comment.save();
+
+    await comment.populate('auteur', 'nom prenom photo_profil');
+    return res.json({ success: true, data: comment });
+  } catch (err) {
+    console.error('Error updating comment:', err);
+    next(err);
+  }
+};
+
+/**
+ * DELETE supprimer un commentaire (auteur uniquement)
+ * DELETE /api/comments/:id
+ * Private
+ */
+exports.deleteComment = async (req, res, next) => {
+  try {
+    const comment = await Comment.findById(req.params.id);
+    if (!comment || comment.statut !== 'ACTIF') {
+      return res.status(404).json({ success: false, message: 'Commentaire introuvable' });
+    }
+    if (String(comment.auteur) !== String(req.user._id)) {
+      return res.status(403).json({ success: false, message: 'Action non autorisée' });
+    }
+
+    // soft delete
+    comment.statut = 'SUPPRIME';
+    await comment.save();
+
+    return res.json({ success: true, message: 'Commentaire supprimé' });
+  } catch (err) {
+    console.error('Error deleting comment:', err);
+    next(err);
+  }
+};
+
+/**
+ * POST like d’un commentaire (toggle + exclusif vs dislike)
+ * POST /api/comments/:id/like
+ * Private
+ */
+exports.likeComment = async (req, res, next) => {
+  try {
+    await dropLegacyLikeIndexIfAny();
+
+    const commentId = req.params.id;
+    const userId = req.user._id;
+
+    const comment = await Comment.findById(commentId);
+    if (!comment || comment.statut !== 'ACTIF') {
+      return res.status(404).json({ success: false, message: 'Comment not found' });
+    }
+
+    const existing = await Like.findOne({
+      type_entite: 'COMMENT',
+      entite_id: commentId,
+      utilisateur: userId,
+    });
+
+    if (!existing) {
+      await Like.create({
+        type_entite: 'COMMENT',
+        entite_id: commentId,
+        utilisateur: userId,
+        type_action: 'LIKE',
+        post_id: comment.post_id || null,
+        video_id: comment.video_id || null,
+        created_by: userId,
+      });
+      comment.likes = (comment.likes || 0) + 1;
+      await comment.save();
+      return res.json({
+        success: true,
+        message: 'Comment liked',
+        data: { liked: true, disliked: false, likes: comment.likes, dislikes: comment.dislikes || 0 },
+      });
+    }
+
+    if (existing.type_action === 'LIKE') {
+      await existing.deleteOne();
+      comment.likes = Math.max((comment.likes || 0) - 1, 0);
+      await comment.save();
+      return res.json({
+        success: true,
+        message: 'Comment unliked',
+        data: { liked: false, disliked: false, likes: comment.likes, dislikes: comment.dislikes || 0 },
+      });
+    }
+
+    // était DISLIKE -> on switch vers LIKE
+    existing.type_action = 'LIKE';
+    await existing.save();
+    comment.likes = (comment.likes || 0) + 1;
+    comment.dislikes = Math.max((comment.dislikes || 0) - 1, 0);
+    await comment.save();
+
+    return res.json({
+      success: true,
+      message: 'Comment liked',
+      data: { liked: true, disliked: false, likes: comment.likes, dislikes: comment.dislikes || 0 },
+    });
+  } catch (err) {
+    console.error('Error in likeComment:', err);
+    next(err);
+  }
+};
+
+/**
+ * POST dislike d’un commentaire (toggle + exclusif vs like)
+ * POST /api/comments/:id/dislike
+ * Private
+ */
+exports.dislikeComment = async (req, res, next) => {
+  try {
+    await dropLegacyLikeIndexIfAny();
+
+    const commentId = req.params.id;
+    const userId = req.user._id;
+
+    const comment = await Comment.findById(commentId);
+    if (!comment || comment.statut !== 'ACTIF') {
+      return res.status(404).json({ success: false, message: 'Comment not found' });
+    }
+
+    const existing = await Like.findOne({
+      type_entite: 'COMMENT',
+      entite_id: commentId,
+      utilisateur: userId,
+    });
+
+    if (!existing) {
+      await Like.create({
+        type_entite: 'COMMENT',
+        entite_id: commentId,
+        utilisateur: userId,
+        type_action: 'DISLIKE',
+        post_id: comment.post_id || null,
+        video_id: comment.video_id || null,
+        created_by: userId,
+      });
+      comment.dislikes = (comment.dislikes || 0) + 1;
+      await comment.save();
+      return res.json({
+        success: true,
+        message: 'Comment disliked',
+        data: { liked: false, disliked: true, likes: comment.likes || 0, dislikes: comment.dislikes },
+      });
+    }
+
+    if (existing.type_action === 'DISLIKE') {
+      await existing.deleteOne();
+      comment.dislikes = Math.max((comment.dislikes || 0) - 1, 0);
+      await comment.save();
+      return res.json({
+        success: true,
+        message: 'Comment undisliked',
+        data: { liked: false, disliked: false, likes: comment.likes || 0, dislikes: comment.dislikes },
+      });
+    }
+
+    // était LIKE -> on switch vers DISLIKE
+    existing.type_action = 'DISLIKE';
+    await existing.save();
+    comment.dislikes = (comment.dislikes || 0) + 1;
+    comment.likes = Math.max((comment.likes || 0) - 1, 0);
+    await comment.save();
+
+    return res.json({
+      success: true,
+      message: 'Comment disliked',
+      data: { liked: false, disliked: true, likes: comment.likes, dislikes: comment.dislikes },
+    });
+  } catch (err) {
+    console.error('Error in dislikeComment:', err);
+    next(err);
+  }
+};
 
 /**
  * @desc    Get comments for a video
@@ -130,8 +516,6 @@ exports.getVideoComments = async (req, res, next) => {
     next(err);
   }
 };
-
-
 
 /**
  * @desc    Get replies for a comment
@@ -284,325 +668,7 @@ exports.addVideoComment = async (req, res, next) => {
   }
 };
 
-exports.likeComment = async (req, res, next) => {
-  try {
-    console.log(`Liking comment: ${req.params.id} by user: ${req.user.id}`);
-    const commentId = req.params.id;
 
-    const comment = await Comment.findById(commentId);
-    if (!comment || comment.statut !== 'ACTIF') {
-      return res.status(404).json({ success: false, message: 'Comment not found' });
-    }
-
-    // Rechercher un like existant avec le nouveau schéma
-    const existingLike = await Like.findOne({
-      type_entite: 'COMMENT',
-      entite_id: commentId,
-      utilisateur: req.user.id
-    });
-
-    if (existingLike) {
-      if (existingLike.type_action === 'LIKE') {
-        await existingLike.deleteOne();
-        comment.likes = Math.max((comment.likes || 0) - 1, 0);
-        await comment.save();
-        return res.json({ 
-          success: true, 
-          message: 'Comment unliked', 
-          data: { 
-            liked: false, 
-            disliked: false, 
-            likes: comment.likes, 
-            dislikes: comment.dislikes 
-          } 
-        });
-      } else {
-        existingLike.type_action = 'LIKE';
-        await existingLike.save();
-        comment.likes = (comment.likes || 0) + 1;
-        comment.dislikes = Math.max((comment.dislikes || 0) - 1, 0);
-        await comment.save();
-        return res.json({ 
-          success: true, 
-          message: 'Comment liked', 
-          data: { 
-            liked: true, 
-            disliked: false, 
-            likes: comment.likes, 
-            dislikes: comment.dislikes 
-          } 
-        });
-      }
-    } else {
-      // Création avec les nouveaux champs requis
-      await Like.create({
-        type_entite: 'COMMENT',
-        entite_id: commentId,
-        utilisateur: req.user.id,
-        type_action: 'LIKE',
-        // Champs optionnels selon le type de commentaire
-        post_id: comment.post_id || null,
-        video_id: comment.video_id || null
-      });
-      
-      comment.likes = (comment.likes || 0) + 1;
-      await comment.save();
-      
-      res.json({ 
-        success: true, 
-        message: 'Comment liked', 
-        data: { 
-          liked: true, 
-          disliked: false, 
-          likes: comment.likes, 
-          dislikes: comment.dislikes 
-        } 
-      });
-    }
-  } catch (err) {
-    console.error("Error in likeComment:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors du like/unlike",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};
-
-exports.dislikeComment = async (req, res, next) => {
-  try {
-    console.log(`Disliking comment: ${req.params.id} by user: ${req.user.id}`);
-    const commentId = req.params.id;
-
-    const comment = await Comment.findById(commentId);
-    if (!comment || comment.statut !== 'ACTIF') {
-      return res.status(404).json({ success: false, message: 'Comment not found' });
-    }
-
-    // Rechercher un like existant avec le nouveau schéma
-    const existingLike = await Like.findOne({
-      type_entite: 'COMMENT',
-      entite_id: commentId,
-      utilisateur: req.user.id
-    });
-
-    if (existingLike) {
-      if (existingLike.type_action === 'DISLIKE') {
-        await existingLike.deleteOne();
-        comment.dislikes = Math.max((comment.dislikes || 0) - 1, 0);
-        await comment.save();
-        return res.json({ 
-          success: true, 
-          message: 'Comment un-disliked', 
-          data: { 
-            liked: false, 
-            disliked: false, 
-            likes: comment.likes, 
-            dislikes: comment.dislikes 
-          } 
-        });
-      } else {
-        existingLike.type_action = 'DISLIKE';
-        await existingLike.save();
-        comment.likes = Math.max((comment.likes || 0) - 1, 0);
-        comment.dislikes = (comment.dislikes || 0) + 1;
-        await comment.save();
-        return res.json({ 
-          success: true, 
-          message: 'Comment disliked', 
-          data: { 
-            liked: false, 
-            disliked: true, 
-            likes: comment.likes, 
-            dislikes: comment.dislikes 
-          } 
-        });
-      }
-    } else {
-      // Création avec les nouveaux champs requis
-      await Like.create({
-        type_entite: 'COMMENT',
-        entite_id: commentId,
-        utilisateur: req.user.id,
-        type_action: 'DISLIKE',
-        // Champs optionnels selon le type de commentaire
-        post_id: comment.post_id || null,
-        video_id: comment.video_id || null
-      });
-      
-      comment.dislikes = (comment.dislikes || 0) + 1;
-      await comment.save();
-      
-      res.json({ 
-        success: true, 
-        message: 'Comment disliked', 
-        data: { 
-          liked: false, 
-          disliked: true, 
-          likes: comment.likes, 
-          dislikes: comment.dislikes 
-        } 
-      });
-    }
-  } catch (err) {
-    console.error("Error in dislikeComment:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors du dislike",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};
-
-/**
- * @desc    Delete a comment
- * @route   DELETE /api/comments/:id
- * @access  Private
- */
-exports.deleteComment = async (req, res, next) => {
-  try {
-    console.log(`Deleting comment: ${req.params.id} by user: ${req.user.id}`);
-    const commentId = req.params.id;
-    const userId = req.user.id;
-    
-    // Find comment
-    const comment = await Comment.findById(commentId);
-    if (!comment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Comment not found'
-      });
-    }
-    
-    // Check ownership or admin rights
-    const isOwner = comment.auteur.equals(userId);
-    const isAdmin = req.user.roles && req.user.roles.some(role => 
-      ['admin', 'superadmin'].includes(role.libelle_role)
-    );
-    
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only delete your own comments'
-      });
-    }
-    
-    // Soft delete - mark as deleted
-    comment.statut = 'SUPPRIME';
-    comment.modified_by = userId;
-    comment.modified_date = new Date();
-    await comment.save();
-    
-    // Also soft delete all replies
-    await Comment.updateMany(
-      { parent_comment: commentId },
-      { 
-        statut: 'SUPPRIME',
-        modified_by: userId,
-        modified_date: new Date()
-      }
-    );
-    
-    // Remove from post's commentaires array if it's a post comment and top-level
-    if (comment.post_id && !comment.parent_comment) {
-      const post = await Post.findById(comment.post_id);
-      if (post) {
-        post.commentaires = post.commentaires.filter(id => !id.equals(commentId));
-        await post.save();
-      }
-    }
-    
-    res.json({
-      success: true,
-      message: 'Comment deleted successfully'
-    });
-  } catch (err) {
-    console.error("Error in deleteComment:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de la suppression du commentaire",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};
-
-/**
- * @desc    Update a comment
- * @route   PUT /api/comments/:id
- * @access  Private
- */
-exports.updateComment = async (req, res, next) => {
-  try {
-    console.log(`Updating comment: ${req.params.id} by user: ${req.user.id}`);
-    const commentId = req.params.id;
-    const { contenu } = req.body;
-    const userId = req.user.id;
-    
-    // Validate input
-    if (!contenu || contenu.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Comment content is required'
-      });
-    }
-    
-    if (contenu.trim().length > 500) {
-      return res.status(400).json({
-        success: false,
-        message: 'Comment cannot exceed 500 characters'
-      });
-    }
-    
-    // Find comment
-    const comment = await Comment.findById(commentId);
-    if (!comment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Comment not found'
-      });
-    }
-    
-    // Check ownership
-    if (!comment.auteur.equals(userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only edit your own comments'
-      });
-    }
-    
-    // Check if comment is still editable (within 15 minutes)
-    const editTimeLimit = 15 * 60 * 1000; // 15 minutes
-    const timeSinceCreation = Date.now() - comment.creation_date.getTime();
-    
-    if (timeSinceCreation > editTimeLimit) {
-      return res.status(400).json({
-        success: false,
-        message: 'Comments can only be edited within 15 minutes of posting'
-      });
-    }
-    
-    // Update comment
-    comment.contenu = contenu.trim();
-    comment.modified_by = userId;
-    comment.modified_date = new Date();
-    await comment.save();
-    
-    await comment.populate('auteur', 'nom prenom photo_profil');
-    
-    res.json({
-      success: true,
-      message: 'Comment updated successfully',
-      data: comment
-    });
-  } catch (err) {
-    console.error("Error in updateComment:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de la mise à jour du commentaire",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};
 
 
 /**
@@ -683,239 +749,4 @@ exports.reportComment = async (req, res, next) => {
 };
 
 
-/**
- * @desc    Get comments for a post
- * @route   GET /api/posts/:postId/comments
- * @access  Public
- */
-exports.getPostComments = async (req, res, next) => {
-  try {
-    const { postId } = req.params;
-    const { page = 1, limit = 10, sortBy = 'recent' } = req.query;
-    
-    // Validate post exists
-    const post = await Post.findById(postId);
-    if (!post) {
-      return res.status(404).json({
-        success: false,
-        message: 'Post not found'
-      });
-    }
-    
-    // Sort options
-    let sortOptions;
-    switch (sortBy) {
-      case 'popular':
-        sortOptions = { likes: -1, creation_date: -1 };
-        break;
-      case 'oldest':
-        sortOptions = { creation_date: 1 };
-        break;
-      case 'recent':
-      default:
-        sortOptions = { creation_date: -1 };
-        break;
-    }
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    // Get top-level comments (not replies)
-    const filter = {
-      post_id: postId,
-      statut: 'ACTIF',
-      parent_comment: null
-    };
-    
-    const total = await Comment.countDocuments(filter);
-    
-    const comments = await Comment.find(filter)
-      .populate('auteur', 'nom prenom photo_profil')
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
-    
-    // Get replies for each comment
-    const commentsWithReplies = await Promise.all(
-      comments.map(async (comment) => {
-        const replies = await Comment.find({
-          parent_comment: comment._id,
-          statut: 'ACTIF'
-        })
-        .populate('auteur', 'nom prenom photo_profil')
-        .sort({ creation_date: 1 })
-        .limit(5) // Limit replies shown initially
-        .lean();
-        
-        // Get total reply count
-        const totalReplies = await Comment.countDocuments({
-          parent_comment: comment._id,
-          statut: 'ACTIF'
-        });
-        
-        // Check user interactions if authenticated
-        let userInteraction = {};
-        if (req.user) {
-          const userLike = await Like.findOne({
-            type_entite: 'COMMENT',
-            entite_id: comment._id,
-            utilisateur: req.user._id
-          });
-          
-          userInteraction = {
-            liked: userLike?.type_action === 'LIKE',
-            disliked: userLike?.type_action === 'DISLIKE'
-          };
-          
-          // Check replies interactions
-          for (let reply of replies) {
-            const replyLike = await Like.findOne({
-              type_entite: 'COMMENT',
-              entite_id: reply._id,
-              utilisateur: req.user._id
-            });
-            
-            reply.userInteraction = {
-              liked: replyLike?.type_action === 'LIKE',
-              disliked: replyLike?.type_action === 'DISLIKE'
-            };
-          }
-        }
-        
-        return {
-          ...comment,
-          userInteraction,
-          replies,
-          totalReplies,
-          hasMoreReplies: totalReplies > 5
-        };
-      })
-    );
-    
-    // IMPORTANT: Ensure consistent response format
-    res.json({
-      success: true,
-      data: commentsWithReplies,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        totalPages: Math.ceil(total / parseInt(limit))
-      }
-    });
-  } catch (err) {
-    console.error('Error getting post comments:', err);
-    // Pass to error handler with consistent format
-    res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de la récupération des commentaires",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};
 
-/**
- * @desc    Add a comment to a post
- * @route   POST /api/posts/:postId/comments
- * @access  Private
- */
-exports.addPostComment = async (req, res, next) => {
-  try {
-    const { postId } = req.params;
-    const { contenu, parentId } = req.body;
-    const userId = req.user._id;
-    
-    // Validate input
-    if (!contenu || contenu.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Comment content is required'
-      });
-    }
-    
-    if (contenu.trim().length > 500) {
-      return res.status(400).json({
-        success: false,
-        message: 'Comment cannot exceed 500 characters'
-      });
-    }
-    
-    // Validate post exists
-    const post = await Post.findById(postId);
-    if (!post) {
-      return res.status(404).json({
-        success: false,
-        message: 'Post not found'
-      });
-    }
-    
-    // Validate parent comment if provided
-    if (parentId) {
-      const parentComment = await Comment.findById(parentId);
-      if (!parentComment) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid parent comment'
-        });
-      }
-    }
-    
-    // Create comment
-    const comment = await Comment.create({
-      contenu: contenu.trim(),
-      video_id: null,
-      post_id: postId,
-      auteur: userId,
-      parent_comment: parentId || null,
-      statut: 'ACTIF'
-    });
-    
-    // Populate author info
-    await comment.populate('auteur', 'nom prenom photo_profil');
-    
-    // Add comment to post's commentaires array if it's a top-level comment
-    if (!parentId) {
-      if (!post.commentaires) post.commentaires = [];
-      post.commentaires.push(comment._id);
-      await post.save();
-    }
-    
-    // Log action
-    await LogAction.create({
-      type_action: 'POST_COMMENT_ADDED',
-      description_action: `Added comment on post`,
-      id_user: userId,
-      ip_address: req.ip,
-      user_agent: req.headers['user-agent'],
-      created_by: userId,
-      donnees_supplementaires: {
-        post_id: postId,
-        comment_id: comment._id,
-        is_reply: !!parentId
-      }
-    });
-    
-    // IMPORTANT: Ensure consistent response format
-    res.status(201).json({
-      success: true,
-      message: 'Comment added successfully',
-      data: {
-        ...comment.toObject(),
-        userInteraction: {
-          liked: false,
-          disliked: false
-        },
-        replies: [],
-        totalReplies: 0,
-        hasMoreReplies: false
-      }
-    });
-  } catch (err) {
-    console.error('Error adding post comment:', err);
-    res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de l'ajout du commentaire",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};

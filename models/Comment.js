@@ -7,8 +7,7 @@ const commentSchema = new Schema({
   contenu: {
     type: String,
     required: [true, 'Le contenu du commentaire est requis'],
-    trim: true,
-    maxlength: [500, 'Le commentaire ne peut pas dépasser 500 caractères']
+    trim: true
   },
   
   auteur: {
