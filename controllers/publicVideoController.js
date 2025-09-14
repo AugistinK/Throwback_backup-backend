@@ -306,189 +306,108 @@ exports.getVideoById = async (req, res, next) => {
   }
 };
 
-/**
- * @desc    Liker/Unliker une vidéo
- * @route   POST /api/videos/:id/like
- * @access  Private
- */
-exports.likeVideo = async (req, res, next) => {
+
+exports.likeVideo = async (req, res) => {
   try {
     const videoId = req.params.id;
     const userId = req.user._id || req.user.id;
-    
-    console.log(' Tentative de like:');
-    console.log(' Video ID:', videoId);
-    console.log(' User ID:', userId);
-    
-    // Vérifier que la vidéo existe
+
     const video = await Video.findById(videoId);
-    if (!video) {
-      return res.status(404).json({
-        success: false,
-        message: 'Vidéo non trouvée'
-      });
-    }
-    
-    // Vérifier si un like existe déjà pour cet utilisateur et cette vidéo
-    let existingLike = await Like.findOne({
-      video_id: videoId,
-      utilisateur: userId  
-    });
-    
-    console.log('🔍 Like existant trouvé:', existingLike ? 'Oui' : 'Non');
-    
-    let liked = false;
-    let likesCount = video.likes || 0;
-    
-    if (existingLike) {
-      // L'utilisateur a déjà liké, on retire le like
-      await Like.deleteOne({ _id: existingLike._id });
-      likesCount = Math.max(0, likesCount - 1);
-      liked = false;
-      console.log('👎 Like retiré');
+    if (!video) return res.status(404).json({ success: false, message: 'Video not found' });
+
+    // Cherche l'interaction existante pour (VIDEO, videoId, userId)
+    let react = await Like.findOne({ type_entite: 'VIDEO', entite_id: videoId, utilisateur: userId });
+
+    if (react) {
+      if (react.type_action === 'LIKE') {
+        // toggle off
+        await react.deleteOne();
+      } else {
+        react.type_action = 'LIKE';
+        await react.save();
+      }
     } else {
-      // Créer un nouveau like avec la structure correcte
-      const newLike = new Like({
-        video_id: videoId,
-        utilisateur: userId,  
-        type_like: 'LIKE',
-        created_by: userId
-      });
-      
-      await newLike.save();
-      likesCount = likesCount + 1;
-      liked = true;
-      console.log('👍 Nouveau like créé');
-    }
-    
-    // Mettre à jour le compteur de likes dans la vidéo
-    video.likes = likesCount;
-    await video.save();
-    
-    // Logger l'action
-    try {
-      await LogAction.create({
-        type_action: liked ? "VIDEO_LIKEE" : "VIDEO_UNLIKEE",
-        description_action: `${liked ? 'Like ajouté' : 'Like retiré'} sur la vidéo "${video.titre}"`,
-        id_user: userId,
-        ip_address: req.ip,
-        user_agent: req.headers['user-agent'],
+      react = await Like.create({
+        type_entite: 'VIDEO',
+        entite_id: videoId,
+        utilisateur: userId,
+        type_action: 'LIKE',
+        video_id: videoId, // méta optionnelle
         created_by: userId,
-        donnees_supplementaires: {
-          video_id: videoId,
-          video_titre: video.titre
-        }
       });
-    } catch (logError) {
-      console.warn('⚠️ Erreur lors du logging (non critique):', logError.message);
     }
-    
+
+    // Recompte fiable
+    const [likes, dislikes] = await Promise.all([
+      Like.getLikesCount('VIDEO', videoId),
+      Like.getDislikesCount('VIDEO', videoId),
+    ]);
+
+    // (facultatif) tu peux aussi synchroniser ces champs sur Video
+    video.likes = likes;
+    video.dislikes = dislikes;
+    await video.save();
+
     res.json({
       success: true,
-      message: liked ? 'Vidéo likée avec succès' : 'Like retiré avec succès',
-      data: {
-        liked: liked,
-        disliked: false, 
-        likes: likesCount,
-        dislikes: video.dislikes || 0
-      }
+      message: 'Like enregistré',
+      data: { liked: !!react && react.type_action === 'LIKE', disliked: !!react && react.type_action === 'DISLIKE', likes, dislikes },
     });
-    
-  } catch (error) {
-    console.error('❌ Erreur lors du like:', error);
-    
-    // Si c'est une erreur de validation, donner plus de détails
-    if (error.name === 'ValidationError') {
-      console.error('📋 Détails de validation:', error.errors);
-      return res.status(400).json({
-        success: false,
-        message: 'Erreur de validation lors du like',
-        details: Object.values(error.errors).map(err => err.message)
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Erreur interne lors du like'
-    });
+  } catch (err) {
+    console.error('Error likeVideo:', err);
+    res.status(500).json({ success: false, message: 'Erreur interne' });
   }
 };
 
-/**
- * @desc    Disliker/Undisliker une vidéo  
- * @route   POST /api/videos/:id/dislike
- * @access  Private
- */
-exports.dislikeVideo = async (req, res, next) => {
+exports.dislikeVideo = async (req, res) => {
   try {
     const videoId = req.params.id;
     const userId = req.user._id || req.user.id;
-    
-    console.log(' Tentative de dislike:');
-    console.log(' Video ID:', videoId);
-    console.log(' User ID:', userId);
-    
-    // Vérifier que la vidéo existe
+
     const video = await Video.findById(videoId);
-    if (!video) {
-      return res.status(404).json({
-        success: false,
-        message: 'Vidéo non trouvée'
-      });
-    }
-    
-    // Vérifier si un dislike existe déjà
-    let existingDislike = await Like.findOne({
-      video_id: videoId,
-      utilisateur: userId,  
-      type_like: 'DISLIKE'
-    });
-    
-    let disliked = false;
-    let dislikesCount = video.dislikes || 0;
-    
-    if (existingDislike) {
-      // Retirer le dislike
-      await Like.deleteOne({ _id: existingDislike._id });
-      dislikesCount = Math.max(0, dislikesCount - 1);
-      disliked = false;
+    if (!video) return res.status(404).json({ success: false, message: 'Video not found' });
+
+    let react = await Like.findOne({ type_entite: 'VIDEO', entite_id: videoId, utilisateur: userId });
+
+    if (react) {
+      if (react.type_action === 'DISLIKE') {
+        await react.deleteOne();
+      } else {
+        react.type_action = 'DISLIKE';
+        await react.save();
+      }
     } else {
-      // Ajouter un dislike
-      const newDislike = new Like({
+      react = await Like.create({
+        type_entite: 'VIDEO',
+        entite_id: videoId,
+        utilisateur: userId,
+        type_action: 'DISLIKE',
         video_id: videoId,
-        utilisateur: userId,  
-        type_like: 'DISLIKE',
-        created_by: userId
+        created_by: userId,
       });
-      
-      await newDislike.save();
-      dislikesCount = dislikesCount + 1;
-      disliked = true;
     }
-    
-    // Mettre à jour la vidéo
-    video.dislikes = dislikesCount;
+
+    const [likes, dislikes] = await Promise.all([
+      Like.getLikesCount('VIDEO', videoId),
+      Like.getDislikesCount('VIDEO', videoId),
+    ]);
+
+    video.likes = likes;
+    video.dislikes = dislikes;
     await video.save();
-    
+
     res.json({
       success: true,
-      message: disliked ? 'Vidéo dislikée avec succès' : 'Dislike retiré avec succès',
-      data: {
-        liked: false,
-        disliked: disliked,
-        likes: video.likes || 0,
-        dislikes: dislikesCount
-      }
+      message: 'Dislike enregistré',
+      data: { liked: !!react && react.type_action === 'LIKE', disliked: !!react && react.type_action === 'DISLIKE', likes, dislikes },
     });
-    
-  } catch (error) {
-    console.error('❌ Erreur lors du dislike:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur interne lors du dislike'
-    });
+  } catch (err) {
+    console.error('Error dislikeVideo:', err);
+    res.status(500).json({ success: false, message: 'Erreur interne' });
   }
 };
+
+
 
 /**
  * @desc    Get trending videos

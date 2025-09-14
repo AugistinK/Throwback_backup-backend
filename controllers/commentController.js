@@ -250,147 +250,99 @@ exports.deleteComment = async (req, res, next) => {
   }
 };
 
-/**
- * POST like d’un commentaire (toggle + exclusif vs dislike)
- * POST /api/comments/:id/like
- * Private
- */
-exports.likeComment = async (req, res, next) => {
+exports.likeComment = async (req, res) => {
   try {
-    await dropLegacyLikeIndexIfAny();
-
     const commentId = req.params.id;
-    const userId = req.user._id;
+    const userId = req.user._id || req.user.id;
 
     const comment = await Comment.findById(commentId);
     if (!comment || comment.statut !== 'ACTIF') {
       return res.status(404).json({ success: false, message: 'Comment not found' });
     }
 
-    const existing = await Like.findOne({
-      type_entite: 'COMMENT',
-      entite_id: commentId,
-      utilisateur: userId,
-    });
+    let react = await Like.findOne({ type_entite: 'COMMENT', entite_id: commentId, utilisateur: userId });
 
-    if (!existing) {
+    if (react) {
+      if (react.type_action === 'LIKE') {
+        await react.deleteOne();
+      } else {
+        react.type_action = 'LIKE';
+        await react.save();
+      }
+    } else {
       await Like.create({
         type_entite: 'COMMENT',
         entite_id: commentId,
         utilisateur: userId,
         type_action: 'LIKE',
-        post_id: comment.post_id || null,
-        video_id: comment.video_id || null,
+        post_id: comment.post_id || undefined,
+        video_id: comment.video_id || undefined,
         created_by: userId,
       });
-      comment.likes = (comment.likes || 0) + 1;
-      await comment.save();
-      return res.json({
-        success: true,
-        message: 'Comment liked',
-        data: { liked: true, disliked: false, likes: comment.likes, dislikes: comment.dislikes || 0 },
-      });
     }
 
-    if (existing.type_action === 'LIKE') {
-      await existing.deleteOne();
-      comment.likes = Math.max((comment.likes || 0) - 1, 0);
-      await comment.save();
-      return res.json({
-        success: true,
-        message: 'Comment unliked',
-        data: { liked: false, disliked: false, likes: comment.likes, dislikes: comment.dislikes || 0 },
-      });
-    }
-
-    // était DISLIKE -> on switch vers LIKE
-    existing.type_action = 'LIKE';
-    await existing.save();
-    comment.likes = (comment.likes || 0) + 1;
-    comment.dislikes = Math.max((comment.dislikes || 0) - 1, 0);
+    // Mets à jour les compteurs du document Comment (optionnel mais pratique)
+    const [likes, dislikes] = await Promise.all([
+      Like.getLikesCount('COMMENT', commentId),
+      Like.getDislikesCount('COMMENT', commentId),
+    ]);
+    comment.likes = likes;
+    comment.dislikes = dislikes;
     await comment.save();
 
-    return res.json({
-      success: true,
-      message: 'Comment liked',
-      data: { liked: true, disliked: false, likes: comment.likes, dislikes: comment.dislikes || 0 },
-    });
+    res.json({ success: true, message: 'Comment liked', data: { liked: true, disliked: false, likes, dislikes } });
   } catch (err) {
     console.error('Error in likeComment:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Une erreur est survenue lors du like/unlike' });
   }
 };
 
-/**
- * POST dislike d’un commentaire (toggle + exclusif vs like)
- * POST /api/comments/:id/dislike
- * Private
- */
-exports.dislikeComment = async (req, res, next) => {
+exports.dislikeComment = async (req, res) => {
   try {
-    await dropLegacyLikeIndexIfAny();
-
     const commentId = req.params.id;
-    const userId = req.user._id;
+    const userId = req.user._id || req.user.id;
 
     const comment = await Comment.findById(commentId);
     if (!comment || comment.statut !== 'ACTIF') {
       return res.status(404).json({ success: false, message: 'Comment not found' });
     }
 
-    const existing = await Like.findOne({
-      type_entite: 'COMMENT',
-      entite_id: commentId,
-      utilisateur: userId,
-    });
+    let react = await Like.findOne({ type_entite: 'COMMENT', entite_id: commentId, utilisateur: userId });
 
-    if (!existing) {
+    if (react) {
+      if (react.type_action === 'DISLIKE') {
+        await react.deleteOne();
+      } else {
+        react.type_action = 'DISLIKE';
+        await react.save();
+      }
+    } else {
       await Like.create({
         type_entite: 'COMMENT',
         entite_id: commentId,
         utilisateur: userId,
         type_action: 'DISLIKE',
-        post_id: comment.post_id || null,
-        video_id: comment.video_id || null,
+        post_id: comment.post_id || undefined,
+        video_id: comment.video_id || undefined,
         created_by: userId,
       });
-      comment.dislikes = (comment.dislikes || 0) + 1;
-      await comment.save();
-      return res.json({
-        success: true,
-        message: 'Comment disliked',
-        data: { liked: false, disliked: true, likes: comment.likes || 0, dislikes: comment.dislikes },
-      });
     }
 
-    if (existing.type_action === 'DISLIKE') {
-      await existing.deleteOne();
-      comment.dislikes = Math.max((comment.dislikes || 0) - 1, 0);
-      await comment.save();
-      return res.json({
-        success: true,
-        message: 'Comment undisliked',
-        data: { liked: false, disliked: false, likes: comment.likes || 0, dislikes: comment.dislikes },
-      });
-    }
-
-    // était LIKE -> on switch vers DISLIKE
-    existing.type_action = 'DISLIKE';
-    await existing.save();
-    comment.dislikes = (comment.dislikes || 0) + 1;
-    comment.likes = Math.max((comment.likes || 0) - 1, 0);
+    const [likes, dislikes] = await Promise.all([
+      Like.getLikesCount('COMMENT', commentId),
+      Like.getDislikesCount('COMMENT', commentId),
+    ]);
+    comment.likes = likes;
+    comment.dislikes = dislikes;
     await comment.save();
 
-    return res.json({
-      success: true,
-      message: 'Comment disliked',
-      data: { liked: false, disliked: true, likes: comment.likes, dislikes: comment.dislikes },
-    });
+    res.json({ success: true, message: 'Comment disliked', data: { liked: false, disliked: true, likes, dislikes } });
   } catch (err) {
     console.error('Error in dislikeComment:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Une erreur est survenue lors du dislike/undislike' });
   }
 };
+
 
 /**
  * @desc    Get comments for a video
