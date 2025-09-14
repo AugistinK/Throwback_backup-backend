@@ -624,6 +624,12 @@ try {
   console.warn(" Routes utilisateur livestreams non disponibles:", error.message);
 }
 
+
+// Dans index.js ou fichier principal des routes
+const adminPostRoutes = require('./routes/api/adminPostRoutes');
+app.use('/api/admin/posts', adminPostRoutes);
+
+
 // Routes principales des livestreams (legacy - peut-être à supprimer plus tard)
 try {
   const liveStreamRoutes = require('./routes/api/liveStreamRoutes');
