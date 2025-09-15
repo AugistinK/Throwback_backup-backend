@@ -1,10 +1,10 @@
 // routes/api/admin/posts.js
 const express = require('express');
 const router = express.Router();
-const adminPostController = require('../../../controllers/adminPostController');
-const commentController = require('../../../controllers/commentController');
-const { isAdmin, isSuperAdmin } = require('../../../middlewares/authMiddleware');
-const { logAction } = require('../../../middlewares/loggingMiddleware');
+const adminPostController = require('../../controllers/adminPostController');
+const commentController = require('../../controllers/commentController');
+const { isAdmin, isSuperAdmin } = require('../../middlewares/authMiddleware');
+const { logAction } = require('../../middlewares/loggingMiddleware');
 
 // ========================================
 // Routes pour les statistiques admin
