@@ -110,6 +110,14 @@ const logActionSchema = new Schema(
         'RESTAURATION_COMMENTAIRE_ADMIN',
         'REJET_SIGNALEMENTS_POST',
         'SUPPRESSION_POST_ADMIN',
+        'MODERATION_MASSE_POSTS',
+        'MODERATION_POST',
+        'RESTAURATION_POST',
+        'RESTAURATION_MASSE_POSTS',
+        'SUPPRESSION_MASSE_POSTS',
+        'SUPPRESSION_POST_ADMIN',
+        
+
         
       ]
     },
