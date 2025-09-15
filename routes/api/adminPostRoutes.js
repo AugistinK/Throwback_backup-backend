@@ -124,7 +124,7 @@ router.put('/:postId/comments/:commentId/moderate',
       const { commentId } = req.params;
       const { raison_moderation } = req.body;
       
-      const Comment = require('../../../models/Comment');
+      const Comment = require('../models/Comment');
       const comment = await Comment.findById(commentId);
       
       if (!comment) {
@@ -168,7 +168,7 @@ router.put('/:postId/comments/:commentId/restore',
     try {
       const { commentId } = req.params;
       
-      const Comment = require('../../../models/Comment');
+      const Comment = require('../models/Comment');
       const comment = await Comment.findById(commentId);
       
       if (!comment) {
@@ -211,8 +211,8 @@ router.put('/:postId/comments/:commentId/restore',
  */
 router.get('/reports/summary', isAdmin, async (req, res) => {
   try {
-    const Post = require('../../../models/Post');
-    const Comment = require('../../../models/Comment');
+    const Post = require('../models/Post');
+    const Comment = require('../models/Comment');
     
     // Statistiques des signalements de posts
     const reportedPosts = await Post.aggregate([
@@ -309,7 +309,7 @@ router.post('/:id/dismiss-reports',
     try {
       const { id } = req.params;
       
-      const Post = require('../../../models/Post');
+      const Post = require('../models/Post');
       const post = await Post.findById(id);
       
       if (!post) {
@@ -350,7 +350,7 @@ router.post('/:id/dismiss-reports',
  */
 router.get('/export/csv', isSuperAdmin, async (req, res) => {
   try {
-    const Post = require('../../../models/Post');
+    const Post = require('../models/Post');
     
     const posts = await Post.find({})
       .populate('auteur', 'nom prenom email')

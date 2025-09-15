@@ -108,7 +108,9 @@ const logActionSchema = new Schema(
         'SUPPRESSION_COMMENTAIRE_ADMIN',
         'MODERATION_COMMENTAIRE_ADMIN',
         'RESTAURATION_COMMENTAIRE_ADMIN',
-        'REJET_SIGNALEMENTS_POST'
+        'REJET_SIGNALEMENTS_POST',
+        'SUPPRESSION_POST_ADMIN',
+        
       ]
     },
     description_action: {
