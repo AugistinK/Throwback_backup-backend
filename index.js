@@ -625,7 +625,7 @@ try {
 }
 
 
-// Dans index.js ou fichier principal des routes
+// Admin Posts
 const adminPostRoutes = require('./routes/api/adminPostRoutes');
 app.use('/api/admin/posts', adminPostRoutes);
 
@@ -740,6 +740,15 @@ app.use('/api/users', userProfileRoutes);
 // Routes administrateur
 const adminApiRoutes = require('./routes/api/admin');
 app.use('/api/admin', adminApiRoutes);
+
+// Routes d'administration des commentaires
+try {
+  const adminCommentsRoutes = require('./routes/api/adminCommentsRoutes');
+  app.use('/api/admin/comments', adminCommentsRoutes);
+  console.log(" Routes admin commentaires chargées avec succès");
+} catch (error) {
+  console.warn(" Routes admin commentaires non disponibles:", error.message);
+}
 
 // Routes memories
 try {
