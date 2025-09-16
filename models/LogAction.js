@@ -116,6 +116,10 @@ const logActionSchema = new Schema(
         'RESTAURATION_MASSE_POSTS',
         'SUPPRESSION_MASSE_POSTS',
         'SUPPRESSION_POST_ADMIN',
+        'REPONSE_ADMIN_COMMENTAIRE',
+        'MODERATION_COMMENTAIRE_LOT',
+        'MODERATION_COMMENTAIRE',
+        
         
 
         
