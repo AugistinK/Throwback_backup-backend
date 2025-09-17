@@ -10,15 +10,10 @@ router.use(protect);
 router.use(authorize(['admin', 'superadmin']));
 
 router.get('/', adminCommentsController.getAllComments);
-
 router.get('/stats', adminCommentsController.getCommentsStats);
-
 router.put('/bulk-moderate', adminCommentsController.bulkModerateComments);
-
 router.get('/:id', adminCommentsController.getCommentDetails);
-
 router.put('/:id/moderate', adminCommentsController.moderateComment);
-
 router.post('/:id/reply', adminCommentsController.replyToComment);
 
 module.exports = router;

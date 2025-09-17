@@ -1,6 +1,6 @@
 // controllers/adminCommentsController.js
 const Comment = require('../models/Comment');
-const Post = require("../models/Post");
+const Post = require('../models/Post');
 const Video = require('../models/Video');
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
@@ -11,7 +11,7 @@ const mongoose = require('mongoose');
  * @route   GET /api/admin/comments
  * @access  Private/Admin
  */
-exports.getAllComments = async (req, res) => {
+const getAllComments = async (req, res) => {
   try {
     const {
       page = 1,
@@ -94,7 +94,7 @@ exports.getAllComments = async (req, res) => {
       .limit(parseInt(limit))
       .lean();
     
-    // Calculer les statistiques
+    // Calculer quelques statistiques utiles pour l’écran
     const stats = await Comment.aggregate([
       {
         $facet: {
@@ -125,13 +125,11 @@ exports.getAllComments = async (req, res) => {
             },
             { $group: { _id: '$isReported', count: { $sum: 1 } } }
           ],
-          total: [
-            { $count: 'count' }
-          ]
+          total: [{ $count: 'count' }]
         }
       }
     ]);
-    
+
     res.json({
       success: true,
       data: comments,
@@ -141,7 +139,7 @@ exports.getAllComments = async (req, res) => {
         total,
         totalPages: Math.ceil(total / parseInt(limit))
       },
-      stats: stats[0]
+      stats: stats[0] || {}
     });
   } catch (error) {
     console.error('Error fetching admin comments:', error);
@@ -157,7 +155,7 @@ exports.getAllComments = async (req, res) => {
  * @route   GET /api/admin/comments/:id
  * @access  Private/Admin
  */
-exports.getCommentDetails = async (req, res) => {
+const getCommentDetails = async (req, res) => {
   try {
     const commentId = req.params.id;
     
@@ -226,7 +224,7 @@ exports.getCommentDetails = async (req, res) => {
  * @route   PUT /api/admin/comments/:id/moderate
  * @access  Private/Admin
  */
-exports.moderateComment = async (req, res) => {
+const moderateComment = async (req, res) => {
   try {
     const commentId = req.params.id;
     const { action, reason } = req.body; // action: 'approve', 'reject', 'delete'
@@ -269,6 +267,9 @@ exports.moderateComment = async (req, res) => {
         newStatus = 'SUPPRIME';
         actionDescription = 'Commentaire supprimé';
         break;
+      default:
+        newStatus = comment.statut;
+        actionDescription = 'Aucune action';
     }
     
     // Mettre à jour le commentaire
@@ -328,7 +329,7 @@ exports.moderateComment = async (req, res) => {
  * @route   PUT /api/admin/comments/bulk-moderate
  * @access  Private/Admin
  */
-exports.bulkModerateComments = async (req, res) => {
+const bulkModerateComments = async (req, res) => {
   try {
     const { commentIds, action, reason } = req.body;
     
@@ -351,6 +352,7 @@ exports.bulkModerateComments = async (req, res) => {
       case 'approve': newStatus = 'ACTIF'; break;
       case 'reject': newStatus = 'MODERE'; break;
       case 'delete': newStatus = 'SUPPRIME'; break;
+      default: newStatus = undefined;
     }
     
     // Mettre à jour les commentaires
@@ -414,7 +416,7 @@ exports.bulkModerateComments = async (req, res) => {
  * @route   GET /api/admin/comments/stats
  * @access  Private/Admin
  */
-exports.getCommentsStats = async (req, res) => {
+const getCommentsStats = async (req, res) => {
   try {
     const stats = await Comment.aggregate([
       {
@@ -431,15 +433,26 @@ exports.getCommentsStats = async (req, res) => {
                   $cond: [
                     { $ifNull: ['$video_id', false] },
                     'video',
-                    { $cond: [{ $ifNull: ['$post_id', false] }, 'post', 'memory'] }
+                    { $cond: [{ $ifNull: ['$post_id', false] }, 'post', 'other'] }
                   ]
                 }
               }
             },
             { $group: { _id: '$type', count: { $sum: 1 } } }
           ],
-          // Stats par période (7 derniers jours)
-          byDate: [
+          // Répartitions signalements
+          reported: [
+            {
+              $project: {
+                isReported: {
+                  $cond: [{ $gt: [{ $size: { $ifNull: ['$signale_par', []] } }, 0] }, 1, 0]
+                }
+              }
+            },
+            { $group: { _id: '$isReported', count: { $sum: 1 } } }
+          ],
+          // Derniers 7 jours
+          last7Days: [
             {
               $match: {
                 creation_date: {
@@ -462,16 +475,8 @@ exports.getCommentsStats = async (req, res) => {
           ],
           // Commentaires les plus signalés
           mostReported: [
-            {
-              $match: {
-                'signale_par.0': { $exists: true }
-              }
-            },
-            {
-              $addFields: {
-                reportCount: { $size: '$signale_par' }
-              }
-            },
+            { $match: { 'signale_par.0': { $exists: true } } },
+            { $addFields: { reportCount: { $size: { $ifNull: ['$signale_par', []] } } } },
             { $sort: { reportCount: -1 } },
             { $limit: 10 },
             {
@@ -490,7 +495,7 @@ exports.getCommentsStats = async (req, res) => {
       }
     ]);
     
-    // Stats des utilisateurs les plus actifs en commentaires
+    // Top 10 utilisateurs les plus actifs en commentaires
     const topCommenters = await Comment.aggregate([
       { $match: { statut: 'ACTIF' } },
       { $group: { _id: '$auteur', count: { $sum: 1 } } },
@@ -516,7 +521,7 @@ exports.getCommentsStats = async (req, res) => {
     res.json({
       success: true,
       data: {
-        ...stats[0],
+        ...(stats[0] || {}),
         topCommenters
       }
     });
@@ -534,7 +539,7 @@ exports.getCommentsStats = async (req, res) => {
  * @route   POST /api/admin/comments/:id/reply
  * @access  Private/Admin
  */
-exports.replyToComment = async (req, res) => {
+const replyToComment = async (req, res) => {
   try {
     const commentId = req.params.id;
     const { contenu } = req.body;

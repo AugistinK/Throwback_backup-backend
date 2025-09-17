@@ -1,83 +1,246 @@
-// routes/api/adminCommentsRoutes.js
+// routes/api/admin/posts.js
 const express = require('express');
 const router = express.Router();
-const { isAdmin, isSuperAdmin } = require('../../middlewares/authMiddleware'); 
+const adminPostController = require('../../controllers/adminPostController');
+const commentController = require('../../controllers/commentController');
+const { isAdmin, isSuperAdmin } = require('../../middlewares/authMiddleware');
 const { logAction } = require('../../middlewares/loggingMiddleware');
-const adminCommentsController = require('../../controllers/adminCommentsController');
 
-console.log('🔧 [AdminCommentsRoutes] Chargement des routes admin commentaires...');
-
-
-
-/**
- * @route   GET /api/admin/comments/stats
- * @desc    Récupérer les statistiques des commentaires
- * @access  Private (Admin)
- */
-router.get('/stats', isAdmin, adminCommentsController.getCommentsStats); 
-
-
+// ========================================
+// Routes pour les statistiques admin
+// ========================================
 
 /**
- * @route   GET /api/admin/comments
- * @desc    Récupérer tous les commentaires avec filtres admin
+ * @route   GET /api/admin/posts/stats
+ * @desc    RÃ©cupÃ©rer les statistiques de modÃ©ration des posts
  * @access  Private (Admin)
  */
-router.get('/', isAdmin, adminCommentsController.getAllComments);
+router.get('/stats', isAdmin, adminPostController.getModerationStats);
+
+// ========================================
+// Routes pour la gestion des posts
+// ========================================
 
 /**
- * @route   GET /api/admin/comments/:id
- * @desc    Récupérer les détails d'un commentaire
+ * @route   GET /api/admin/posts
+ * @desc    RÃ©cupÃ©rer tous les posts avec filtres admin
  * @access  Private (Admin)
  */
-router.get('/:id', isAdmin, adminCommentsController.getCommentDetails);
+router.get('/', isAdmin, adminPostController.getAllPosts);
 
 /**
- * @route   PUT /api/admin/comments/:id/moderate
- * @desc    Modérer un commentaire (approuver/rejeter/supprimer)
+ * @route   GET /api/admin/posts/:id
+ * @desc    RÃ©cupÃ©rer un post avec dÃ©tails complets (admin)
  * @access  Private (Admin)
  */
-router.put('/:id/moderate',
+router.get('/:id', isAdmin, adminPostController.getPostDetails);
+
+/**
+ * @route   PUT /api/admin/posts/:id/moderate
+ * @desc    ModÃ©rer un post
+ * @access  Private (Admin)
+ */
+router.put('/:id/moderate', 
   isAdmin,
-  logAction('MODERATION_COMMENTAIRE_ADMIN', 'Modération d\'un commentaire par admin'),
-  adminCommentsController.moderateComment
+  logAction('MODERATION_POST_ADMIN', 'ModÃ©ration d\'un post par admin'),
+  adminPostController.moderatePost
 );
 
 /**
- * @route   POST /api/admin/comments/:id/reply
- * @desc    Répondre à un commentaire en tant qu'admin
+ * @route   PUT /api/admin/posts/:id/restore
+ * @desc    Restaurer un post (retirer la modÃ©ration)
  * @access  Private (Admin)
  */
-router.post('/:id/reply',
+router.put('/:id/restore',
   isAdmin,
-  logAction('REPONSE_COMMENTAIRE_ADMIN', 'Réponse à un commentaire par admin'),
-  adminCommentsController.replyToComment
+  logAction('RESTAURATION_POST_ADMIN', 'Restauration d\'un post par admin'),
+  adminPostController.restorePost
 );
 
-
 /**
- * @route   PUT /api/admin/comments/bulk-moderate
- * @desc    Modération en lot des commentaires
+ * @route   DELETE /api/admin/posts/:id
+ * @desc    Supprimer dÃ©finitivement un post (admin)
  * @access  Private (Admin)
  */
-router.put('/bulk-moderate',
+router.delete('/:id',
   isAdmin,
-  logAction('MODERATION_MASSE_COMMENTAIRES', 'Modération en masse de commentaires'),
-  adminCommentsController.bulkModerateComments
+  logAction('SUPPRESSION_DEFINITIVE_POST', 'Suppression dÃ©finitive d\'un post par admin'),
+  adminPostController.deletePost
 );
 
+/**
+ * @route   POST /api/admin/posts/bulk-action
+ * @desc    Actions en masse sur les posts
+ * @access  Private (Admin)
+ */
+router.post('/bulk-action',
+  isAdmin,
+  logAction('ACTION_MASSE_POSTS', 'Action en masse sur des posts'),
+  adminPostController.bulkAction
+);
 
+// ========================================
+// Routes pour la gestion des commentaires (admin)
+// ========================================
 
 /**
- * @route   GET /api/admin/comments/reports/summary
- * @desc    Récupérer un résumé des commentaires signalés
+ * @route   GET /api/admin/posts/:postId/comments
+ * @desc    RÃ©cupÃ©rer tous les commentaires d'un post (vue admin)
+ * @access  Private (Admin)
+ */
+router.get('/:postId/comments', isAdmin, async (req, res, next) => {
+  // Modifier temporairement req.user pour bypasser les restrictions de visibilitÃ©
+  req.originalUser = req.user;
+  req.bypassVisibility = true;
+  next();
+}, commentController.getPostComments);
+
+/**
+ * @route   DELETE /api/admin/posts/:postId/comments/:commentId
+ * @desc    Supprimer un commentaire (admin)
+ * @access  Private (Admin)
+ */
+router.delete('/:postId/comments/:commentId',
+  isAdmin,
+  logAction('SUPPRESSION_COMMENTAIRE_ADMIN', 'Suppression d\'un commentaire par admin'),
+  async (req, res, next) => {
+    // Passer l'ID du commentaire en paramÃ¨tre
+    req.params.commentId = req.params.commentId;
+    next();
+  },
+  commentController.deleteComment
+);
+
+/**
+ * @route   PUT /api/admin/posts/:postId/comments/:commentId/moderate
+ * @desc    ModÃ©rer un commentaire
+ * @access  Private (Admin)
+ */
+router.put('/:postId/comments/:commentId/moderate',
+  isAdmin,
+  logAction('MODERATION_COMMENTAIRE_ADMIN', 'ModÃ©ration d\'un commentaire par admin'),
+  async (req, res) => {
+    try {
+      const { commentId } = req.params;
+      const { raison_moderation } = req.body;
+      
+      const Comment = require('../models/Comment');
+      const comment = await Comment.findById(commentId);
+      
+      if (!comment) {
+        return res.status(404).json({
+          success: false,
+          message: 'Commentaire non trouvÃ©'
+        });
+      }
+      
+      comment.statut = 'MODERE';
+      comment.raison_moderation = raison_moderation || 'ModÃ©rÃ© par un administrateur';
+      comment.modified_by = req.user.id;
+      comment.modified_date = Date.now();
+      
+      await comment.save();
+      
+      res.status(200).json({
+        success: true,
+        message: 'Commentaire modÃ©rÃ© avec succÃ¨s',
+        data: comment
+      });
+    } catch (error) {
+      console.error('Erreur lors de la modÃ©ration du commentaire:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la modÃ©ration du commentaire'
+      });
+    }
+  }
+);
+
+/**
+ * @route   PUT /api/admin/posts/:postId/comments/:commentId/restore
+ * @desc    Restaurer un commentaire modÃ©rÃ©
+ * @access  Private (Admin)
+ */
+router.put('/:postId/comments/:commentId/restore',
+  isAdmin,
+  logAction('RESTAURATION_COMMENTAIRE_ADMIN', 'Restauration d\'un commentaire par admin'),
+  async (req, res) => {
+    try {
+      const { commentId } = req.params;
+      
+      const Comment = require('../models/Comment');
+      const comment = await Comment.findById(commentId);
+      
+      if (!comment) {
+        return res.status(404).json({
+          success: false,
+          message: 'Commentaire non trouvÃ©'
+        });
+      }
+      
+      comment.statut = 'ACTIF';
+      comment.raison_moderation = '';
+      comment.modified_by = req.user.id;
+      comment.modified_date = Date.now();
+      
+      await comment.save();
+      
+      res.status(200).json({
+        success: true,
+        message: 'Commentaire restaurÃ© avec succÃ¨s',
+        data: comment
+      });
+    } catch (error) {
+      console.error('Erreur lors de la restauration du commentaire:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la restauration du commentaire'
+      });
+    }
+  }
+);
+
+// ========================================
+// Routes pour les signalements
+// ========================================
+
+/**
+ * @route   GET /api/admin/posts/reports/summary
+ * @desc    RÃ©cupÃ©rer un rÃ©sumÃ© des signalements
  * @access  Private (Admin)
  */
 router.get('/reports/summary', isAdmin, async (req, res) => {
   try {
-    const Comment = require('../../models/Comment');
+    const Post = require('../models/Post');
+    const Comment = require('../models/Comment');
     
-    // Statistiques des commentaires signalés
+    // Statistiques des signalements de posts
+    const reportedPosts = await Post.aggregate([
+      {
+        $match: {
+          'signalements.0': { $exists: true }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          contenu: 1,
+          auteur: 1,
+          signalements: 1,
+          modere: 1,
+          createdAt: 1,
+          reportCount: { $size: '$signalements' }
+        }
+      },
+      {
+        $sort: { reportCount: -1, createdAt: -1 }
+      },
+      {
+        $limit: 20
+      }
+    ]);
+    
+    // Statistiques des signalements de commentaires
     const reportedComments = await Comment.aggregate([
       {
         $match: {
@@ -89,8 +252,6 @@ router.get('/reports/summary', isAdmin, async (req, res) => {
           _id: 1,
           contenu: 1,
           auteur: 1,
-          video_id: 1,
-          post_id: 1,
           signale_par: 1,
           statut: 1,
           creation_date: 1,
@@ -101,98 +262,72 @@ router.get('/reports/summary', isAdmin, async (req, res) => {
         $sort: { reportCount: -1, creation_date: -1 }
       },
       {
-        $limit: 50
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'auteur',
-          foreignField: '_id',
-          as: 'auteur'
-        }
-      },
-      {
-        $lookup: {
-          from: 'videos',
-          localField: 'video_id',
-          foreignField: '_id',
-          as: 'video'
-        }
-      },
-      {
-        $lookup: {
-          from: 'posts',
-          localField: 'post_id',
-          foreignField: '_id',
-          as: 'post'
-        }
+        $limit: 20
       }
     ]);
     
     // Compter les totaux
-    const totalReported = await Comment.countDocuments({
-      'signale_par.0': { $exists: true }
+    const totalReportedPosts = await Post.countDocuments({
+      'signalements.0': { $exists: true }
     });
     
-    const totalPending = await Comment.countDocuments({
-      'signale_par.0': { $exists: true },
-      statut: 'SIGNALE'
+    const totalReportedComments = await Comment.countDocuments({
+      'signale_par.0': { $exists: true }
     });
     
     res.status(200).json({
       success: true,
       data: {
-        reportedComments,
-        stats: {
-          total: totalReported,
-          pending: totalPending,
-          processed: totalReported - totalPending
+        posts: {
+          items: reportedPosts,
+          total: totalReportedPosts
+        },
+        comments: {
+          items: reportedComments,
+          total: totalReportedComments
         }
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des signalements:', error);
+    console.error('Erreur lors de la rÃ©cupÃ©ration des signalements:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des signalements'
+      message: 'Erreur lors de la rÃ©cupÃ©ration des signalements'
     });
   }
 });
 
 /**
- * @route   POST /api/admin/comments/:id/dismiss-reports
- * @desc    Rejeter tous les signalements d'un commentaire
+ * @route   POST /api/admin/posts/:id/dismiss-reports
+ * @desc    Rejeter tous les signalements d'un post
  * @access  Private (Admin)
  */
 router.post('/:id/dismiss-reports',
   isAdmin,
-  logAction('REJET_SIGNALEMENTS_COMMENTAIRE', 'Rejet des signalements d\'un commentaire'),
+  logAction('REJET_SIGNALEMENTS_POST', 'Rejet des signalements d\'un post'),
   async (req, res) => {
     try {
       const { id } = req.params;
       
-      const Comment = require('../../models/Comment');
-      const comment = await Comment.findById(id);
+      const Post = require('../models/Post');
+      const post = await Post.findById(id);
       
-      if (!comment) {
+      if (!post) {
         return res.status(404).json({
           success: false,
-          message: 'Commentaire non trouvé'
+          message: 'Post non trouvÃ©'
         });
       }
       
       // Vider les signalements
-      comment.signale_par = [];
-      comment.statut = 'ACTIF'; // Remettre en actif
-      comment.modified_by = req.user.id;
-      comment.modified_date = Date.now();
+      post.signalements = [];
+      post.modified_by = req.user.id;
       
-      await comment.save();
+      await post.save();
       
       res.status(200).json({
         success: true,
-        message: 'Signalements rejetés avec succès',
-        data: comment
+        message: 'Signalements rejetÃ©s avec succÃ¨s'
       });
     } catch (error) {
       console.error('Erreur lors du rejet des signalements:', error);
@@ -204,42 +339,41 @@ router.post('/:id/dismiss-reports',
   }
 );
 
+// ========================================
+// Routes pour les exports et rapports
+// ========================================
+
 /**
- * @route   GET /api/admin/comments/export/csv
- * @desc    Exporter les données des commentaires en CSV
+ * @route   GET /api/admin/posts/export/csv
+ * @desc    Exporter les donnÃ©es des posts en CSV
  * @access  Private (SuperAdmin)
  */
 router.get('/export/csv', isSuperAdmin, async (req, res) => {
   try {
-    const Comment = require('../../models/Comment');
+    const Post = require('../models/Post');
     
-    const comments = await Comment.find({})
+    const posts = await Post.find({})
       .populate('auteur', 'nom prenom email')
-      .populate('video_id', 'titre artiste')
-      .populate('post_id', 'contenu')
-      .sort({ creation_date: -1 })
+      .sort({ createdAt: -1 })
       .lean();
     
-    // Préparer les données pour le CSV
-    const csvData = comments.map(comment => ({
-      id: comment._id,
-      contenu: comment.contenu?.replace(/["\n\r]/g, ' ') || '',
-      auteur: `${comment.auteur?.prenom || ''} ${comment.auteur?.nom || ''}`.trim(),
-      email_auteur: comment.auteur?.email || '',
-      type: comment.video_id ? 'Vidéo' : comment.post_id ? 'Post' : 'Autre',
-      video_titre: comment.video_id?.titre || '',
-      video_artiste: comment.video_id?.artiste || '',
-      post_contenu: comment.post_id?.contenu?.substring(0, 50) || '',
-      statut: comment.statut,
-      likes: comment.likes || 0,
-      dislikes: comment.dislikes || 0,
-      nb_signalements: comment.signale_par?.length || 0,
-      parent_comment: comment.parent_comment ? 'Oui' : 'Non',
-      date_creation: comment.creation_date,
-      date_modification: comment.modified_date
+    // PrÃ©parer les donnÃ©es pour le CSV
+    const csvData = posts.map(post => ({
+      id: post._id,
+      contenu: post.contenu?.replace(/["\n\r]/g, ' ') || '',
+      auteur: `${post.auteur?.prenom || ''} ${post.auteur?.nom || ''}`.trim(),
+      email_auteur: post.auteur?.email || '',
+      visibilite: post.visibilite,
+      type_media: post.type_media,
+      modere: post.modere ? 'Oui' : 'Non',
+      nb_likes: post.likes?.length || 0,
+      nb_commentaires: post.commentaires?.length || 0,
+      nb_signalements: post.signalements?.length || 0,
+      date_creation: post.createdAt,
+      date_modification: post.updatedAt
     }));
     
-    // Générer l'en-tête CSV
+    // GÃ©nÃ©rer l'en-tÃªte CSV
     const headers = Object.keys(csvData[0]).join(',');
     const csvContent = [
       headers,
@@ -247,7 +381,7 @@ router.get('/export/csv', isSuperAdmin, async (req, res) => {
     ].join('\n');
     
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="comments_export_${Date.now()}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="posts_export_${Date.now()}.csv"`);
     res.send(csvContent);
   } catch (error) {
     console.error('Erreur lors de l\'export CSV:', error);
@@ -258,28 +392,4 @@ router.get('/export/csv', isSuperAdmin, async (req, res) => {
   }
 });
 
-// ========================================
-// Routes de debug/test (à supprimer en production)
-// ========================================
-
-/**
- * @route   GET /api/admin/comments/test
- * @desc    Route de test pour vérifier que les middlewares fonctionnent
- * @access  Private (Admin)
- */
-router.get('/test', isAdmin, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Routes admin commentaires fonctionnelles !',
-    user: {
-      id: req.user.id,
-      email: req.user.email,
-      role: req.user.role
-    },
-    timestamp: new Date().toISOString()
-  });
-});
-
-console.log('✅ [AdminCommentsRoutes] Routes admin commentaires configurées');
-
-module.exports = router
+module.exports = router;
