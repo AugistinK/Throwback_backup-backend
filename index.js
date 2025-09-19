@@ -1,4 +1,4 @@
-// index.js - SERVEUR PRINCIPAL
+// index.js 
 require("dotenv").config();
 const express = require("express");
 const session = require('express-session');
@@ -630,6 +630,8 @@ const adminPostRoutes = require('./routes/api/adminPostRoutes');
 app.use('/api/admin/posts', adminPostRoutes);
 
 
+
+
 // Routes principales des livestreams (legacy - peut-être à supprimer plus tard)
 try {
   const liveStreamRoutes = require('./routes/api/liveStreamRoutes');
@@ -749,6 +751,11 @@ try {
 } catch (error) {
   console.warn(" Routes admin commentaires non disponibles:", error.message);
 }
+
+// Routes d'administration des likes
+const adminLikesRoutes = require('./routes/api/adminLikesRoutes');
+app.use('/api/admin/likes', adminLikesRoutes);
+
 
 // Routes memories
 try {
