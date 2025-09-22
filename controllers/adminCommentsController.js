@@ -4,151 +4,153 @@ const Post = require('../models/Post');
 const Video = require('../models/Video');
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
+const Post = require("../models/Post");
+const Video = require('../models/Video');
+const Memory = require('../models/Memory');  
+const User = require('../models/User');          
 const mongoose = require('mongoose');
 
-/**
- * @desc    Obtenir tous les commentaires avec filtres (admin)
- * @route   GET /api/admin/comments
- * @access  Private/Admin
- */
-const getAllComments = async (req, res) => {
+
+exports.getAllComments = async (req, res) => {
   try {
     const {
       page = 1,
       limit = 20,
       search = '',
       status = 'all',
-      type = 'all', // all, video, post
+      type = 'all',        
       sortBy = 'recent',
       userId = null,
-      reported = 'all' // all, reported, not_reported
+      reported = 'all'
     } = req.query;
 
-    // Construction du filtre
+
+    if (type === 'podcast') {
+      const filterMem = { podcast: { $ne: null } };
+      if (userId && mongoose.Types.ObjectId.isValid(userId)) filterMem.auteur = userId;
+      if (search.trim()) filterMem.contenu = { $regex: search.trim(), $options: 'i' };
+
+      let sort = { createdAt: -1 };
+      if (sortBy === 'oldest') sort = { createdAt: 1 };
+      if (sortBy === 'most_liked') sort = { likes: -1, createdAt: -1 };
+
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      const total = await Memory.countDocuments(filterMem);
+
+      const memories = await Memory.find(filterMem)
+        .populate('auteur', 'nom prenom email photo_profil')
+        .populate('podcast', 'title episode season')
+        .sort(sort).skip(skip).limit(parseInt(limit)).lean();
+
+      // Normalise pour la liste admin (mêmes clés que Comment)
+      const rows = memories.map(m => ({
+        _id: m._id,
+        contenu: m.contenu,
+        auteur: m.auteur,
+        podcast: m.podcast,                 
+        video_id: null,
+        post_id: null,
+        parent_comment: null,
+        statut: 'ACTIF',
+        likes: m.likes || 0,
+        dislikes: 0,
+        creation_date: m.createdAt,         
+        isMemory: true,                     
+      }));
+
+      // Stats dédiées Memory (podcasts)
+      const statsMem = await Memory.aggregate([
+        { $match: { podcast: { $ne: null } } },
+        { $facet: {
+            total: [{ $count: 'count' }],
+            byType: [{ $group: { _id: 'podcast', count: { $sum: 1 } } }]
+        } }
+      ]);
+
+      return res.json({
+        success: true,
+        data: rows,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          totalPages: Math.ceil(total / parseInt(limit))
+        },
+        stats: statsMem[0] || {}
+      });
+    }
+
+
     const filter = {};
+    if (status !== 'all') filter.statut = status.toUpperCase();
+
     
-    // Filtre par statut
-    if (status !== 'all') {
-      filter.statut = status.toUpperCase();
-    }
-    
-    // Filtre par type (vidéo ou post)
     if (type === 'video') {
-      filter.video_id = { $exists: true };
-      filter.post_id = { $exists: false };
+      filter.video_id = { $ne: null };
     } else if (type === 'post') {
-      filter.post_id = { $exists: true };
-      filter.video_id = { $exists: false };
+      filter.post_id = { $ne: null };
     }
-    
-    // Filtre par utilisateur spécifique
-    if (userId) {
-      filter.auteur = userId;
-    }
-    
-    // Filtre par commentaires signalés
-    if (reported === 'reported') {
-      filter['signale_par.0'] = { $exists: true };
-    } else if (reported === 'not_reported') {
-      filter['signale_par.0'] = { $exists: false };
-    }
-    
-    // Recherche textuelle
+
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) filter.auteur = userId;
+
+    if (reported === 'reported') filter['signale_par.0'] = { $exists: true };
+    else if (reported === 'not_reported') filter['signale_par.0'] = { $exists: false };
+
     if (search.trim()) {
-      filter.$or = [
-        { contenu: { $regex: search, $options: 'i' } }
-      ];
+      filter.$or = [{ contenu: { $regex: search.trim(), $options: 'i' } }];
     }
-    
-    // Options de tri
-    let sortOptions;
-    switch (sortBy) {
-      case 'oldest':
-        sortOptions = { creation_date: 1 };
-        break;
-      case 'most_liked':
-        sortOptions = { likes: -1, creation_date: -1 };
-        break;
-      case 'most_reported':
-        sortOptions = { 'signale_par': -1, creation_date: -1 };
-        break;
-      case 'recent':
-      default:
-        sortOptions = { creation_date: -1 };
-        break;
-    }
-    
-    // Pagination
+
+    let sortOptions = { creation_date: -1 };
+    if (sortBy === 'oldest') sortOptions = { creation_date: 1 };
+    if (sortBy === 'most_liked') sortOptions = { likes: -1, creation_date: -1 };
+    if (sortBy === 'most_reported') sortOptions = { 'signale_par': -1, creation_date: -1 };
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const total = await Comment.countDocuments(filter);
-    
-    // Récupération des commentaires
+
     const comments = await Comment.find(filter)
       .populate('auteur', 'nom prenom email photo_profil statut_compte')
       .populate('video_id', 'titre artiste type')
       .populate('post_id', 'contenu type_media')
       .populate('parent_comment', 'contenu auteur')
       .populate('signale_par.utilisateur', 'nom prenom')
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
-    
-    // Calculer quelques statistiques utiles pour l’écran
+      .sort(sortOptions).skip(skip).limit(parseInt(limit)).lean();
+
     const stats = await Comment.aggregate([
-      {
-        $facet: {
-          byStatus: [
-            { $group: { _id: '$statut', count: { $sum: 1 } } }
-          ],
+      { $facet: {
+          byStatus: [{ $group: { _id: '$statut', count: { $sum: 1 } } }],
           byType: [
-            {
-              $project: {
-                type: {
-                  $cond: [
-                    { $ifNull: ['$video_id', false] },
-                    'video',
-                    { $cond: [{ $ifNull: ['$post_id', false] }, 'post', 'other'] }
-                  ]
-                }
-              }
-            },
+            { $project: { type: {
+                $cond: [
+                  { $ne: ['$video_id', null] }, 'video',
+                  { $cond: [{ $ne: ['$post_id', null] }, 'post', 'other'] }
+                ]
+            } } },
             { $group: { _id: '$type', count: { $sum: 1 } } }
           ],
           reported: [
-            {
-              $project: {
-                isReported: {
-                  $cond: [{ $gt: [{ $size: { $ifNull: ['$signale_par', []] } }, 0] }, 1, 0]
-                }
-              }
-            },
+            { $project: { isReported: { $cond: [{ $gt: [{ $size: { $ifNull: ['$signale_par', []] } }, 0] }, 1, 0] } } },
             { $group: { _id: '$isReported', count: { $sum: 1 } } }
           ],
           total: [{ $count: 'count' }]
-        }
-      }
+      } }
     ]);
 
     res.json({
       success: true,
       data: comments,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        totalPages: Math.ceil(total / parseInt(limit))
+        page: parseInt(page), limit: parseInt(limit),
+        total, totalPages: Math.ceil(total / parseInt(limit))
       },
       stats: stats[0] || {}
     });
   } catch (error) {
     console.error('Error fetching admin comments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la récupération des commentaires'
-    });
+    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des commentaires' });
   }
 };
+
 
 /**
  * @desc    Obtenir les détails d'un commentaire (admin)
