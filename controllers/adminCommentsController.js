@@ -3,7 +3,8 @@ const Comment = require('../models/Comment');
 const Post = require('../models/Post');
 const Video = require('../models/Video');
 const Memory = require('../models/Memory');  
-const User = require('../models/User');          
+const User = require('../models/User');
+const LogAction = require('../models/LogAction');          
 const mongoose = require('mongoose');
 
 

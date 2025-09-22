@@ -744,6 +744,7 @@ const adminApiRoutes = require('./routes/api/admin');
 app.use('/api/admin', adminApiRoutes);
 
 // Routes d'administration des commentaires
+// Routes d'administration des commentaires
 try {
   const adminCommentsRoutes = require('./routes/api/adminCommentsRoutes');
   app.use('/api/admin/comments', adminCommentsRoutes);
@@ -751,6 +752,7 @@ try {
 } catch (error) {
   console.warn(" Routes admin commentaires non disponibles:", error.message);
 }
+
 
 // Routes d'administration des likes
 const adminLikesRoutes = require('./routes/api/adminLikesRoutes');
