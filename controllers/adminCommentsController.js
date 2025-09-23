@@ -32,14 +32,13 @@ const getAllComments = async (req, res) => {
       filter.statut = status.toUpperCase();
     }
     
-    // Filtre par type (vidéo ou post)
-    if (type === 'video') {
-      filter.video_id = { $exists: true };
-      filter.post_id = { $exists: false };
-    } else if (type === 'post') {
-      filter.post_id = { $exists: true };
-      filter.video_id = { $exists: false };
-    }
+// Filtre par type (vidéo ou post) — sans exclure l'autre clé
+      if (type === 'video') {
+        filter.video_id = { $exists: true };
+      } else if (type === 'post') {
+        filter.post_id = { $exists: true };
+      }
+
     
     // Filtre par utilisateur spécifique
     if (userId) {
