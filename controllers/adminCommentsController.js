@@ -2,6 +2,7 @@
 const Comment = require('../models/Comment');
 const Post = require('../models/Post');
 const Video = require('../models/Video');
+const Podcast = require('../models/Podcast'); // NEW
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
 const mongoose = require('mongoose');
@@ -16,133 +17,88 @@ const getAllComments = async (req, res) => {
     const {
       page = 1,
       limit = 20,
-      search = '',
       status = 'all',
-      type = 'all', // all, video, post
+      type = 'all',
       sortBy = 'recent',
-      userId = null,
-      reported = 'all' // all, reported, not_reported
+      search = '',
+      minLikes,
+      minReports
     } = req.query;
 
-    // Construction du filtre
     const filter = {};
-    
-    // Filtre par statut
-    if (status !== 'all') {
-      filter.statut = status.toUpperCase();
+
+    // Statut
+    if (status && status !== 'all') {
+      filter.statut = status;
     }
-    
-    // Filtre par type (vidéo ou post)
+
+    // Type
     if (type === 'video') {
       filter.video_id = { $exists: true };
-      filter.post_id = { $exists: false };
     } else if (type === 'post') {
       filter.post_id = { $exists: true };
-      filter.video_id = { $exists: false };
+    } else if (type === 'podcast') {
+      filter.podcast_id = { $exists: true };
     }
-    
-    // Filtre par utilisateur spécifique
-    if (userId) {
-      filter.auteur = userId;
-    }
-    
-    // Filtre par commentaires signalés
-    if (reported === 'reported') {
-      filter['signale_par.0'] = { $exists: true };
-    } else if (reported === 'not_reported') {
-      filter['signale_par.0'] = { $exists: false };
-    }
-    
-    // Recherche textuelle
-    if (search.trim()) {
+
+    // Recherche
+    if (search) {
       filter.$or = [
-        { contenu: { $regex: search, $options: 'i' } }
+        { contenu: { $regex: search, $options: 'i' } },
+        { content: { $regex: search, $options: 'i' } }
       ];
     }
-    
-    // Options de tri
+
+    // Min likes / reports
+    if (minLikes) filter.likes = { $gte: Number(minLikes) };
+    if (minReports) filter['signale_par.0'] = { $exists: true }; // présence >=1
+
+    // Tri
     let sortOptions;
     switch (sortBy) {
       case 'oldest':
-        sortOptions = { creation_date: 1 };
+        sortOptions = { createdAt: 1, creation_date: 1 };
         break;
       case 'most_liked':
-        sortOptions = { likes: -1, creation_date: -1 };
+        sortOptions = { likes: -1, createdAt: -1, creation_date: -1 };
         break;
       case 'most_reported':
-        sortOptions = { 'signale_par': -1, creation_date: -1 };
+        sortOptions = { 'signale_par': -1, createdAt: -1, creation_date: -1 };
         break;
       case 'recent':
       default:
-        sortOptions = { creation_date: -1 };
+        sortOptions = { createdAt: -1, creation_date: -1 };
         break;
     }
-    
-    // Pagination
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const total = await Comment.countDocuments(filter);
-    
-    // Récupération des commentaires
+
     const comments = await Comment.find(filter)
-      .populate('auteur', 'nom prenom email photo_profil statut_compte')
+      .populate('auteur', 'nom prenom email photo_profil statut_compte username')
       .populate('video_id', 'titre artiste type')
       .populate('post_id', 'contenu type_media')
+      .populate('podcast_id', 'titre title nom auteur host cover image') // NEW
       .populate('parent_comment', 'contenu auteur')
       .populate('signale_par.utilisateur', 'nom prenom')
       .sort(sortOptions)
       .skip(skip)
       .limit(parseInt(limit))
       .lean();
-    
-    // Calculer quelques statistiques utiles pour l’écran
-    const stats = await Comment.aggregate([
-      {
-        $facet: {
-          byStatus: [
-            { $group: { _id: '$statut', count: { $sum: 1 } } }
-          ],
-          byType: [
-            {
-              $project: {
-                type: {
-                  $cond: [
-                    { $ifNull: ['$video_id', false] },
-                    'video',
-                    { $cond: [{ $ifNull: ['$post_id', false] }, 'post', 'other'] }
-                  ]
-                }
-              }
-            },
-            { $group: { _id: '$type', count: { $sum: 1 } } }
-          ],
-          reported: [
-            {
-              $project: {
-                isReported: {
-                  $cond: [{ $gt: [{ $size: { $ifNull: ['$signale_par', []] } }, 0] }, 1, 0]
-                }
-              }
-            },
-            { $group: { _id: '$isReported', count: { $sum: 1 } } }
-          ],
-          total: [{ $count: 'count' }]
-        }
-      }
-    ]);
+
+    const total = await Comment.countDocuments(filter);
 
     res.json({
       success: true,
       data: comments,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: Number(page),
+        limit: Number(limit),
         total,
-        totalPages: Math.ceil(total / parseInt(limit))
-      },
-      stats: stats[0] || {}
+        pages: Math.ceil(total / limit)
+      }
     });
   } catch (error) {
-    console.error('Error fetching admin comments:', error);
+    console.error('getAllComments error:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des commentaires'
@@ -151,450 +107,187 @@ const getAllComments = async (req, res) => {
 };
 
 /**
- * @desc    Obtenir les détails d'un commentaire (admin)
+ * @desc    Détails d'un commentaire
  * @route   GET /api/admin/comments/:id
  * @access  Private/Admin
  */
 const getCommentDetails = async (req, res) => {
   try {
-    const commentId = req.params.id;
-    
-    if (!mongoose.Types.ObjectId.isValid(commentId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'ID de commentaire invalide'
-      });
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'ID invalide' });
     }
-    
-    const comment = await Comment.findById(commentId)
-      .populate('auteur', 'nom prenom email photo_profil statut_compte date_inscription')
-      .populate('video_id', 'titre artiste type youtubeUrl')
-      .populate('post_id', 'contenu type_media media')
-      .populate('parent_comment')
-      .populate('signale_par.utilisateur', 'nom prenom email')
+
+    const comment = await Comment.findById(id)
+      .populate('auteur', 'nom prenom email photo_profil username')
+      .populate('video_id', 'titre artiste type')
+      .populate('post_id', 'contenu type_media')
+      .populate('podcast_id', 'titre title nom auteur host cover image') // NEW
+      .populate('parent_comment', 'contenu auteur')
+      .populate('signale_par.utilisateur', 'nom prenom')
       .lean();
-    
+
     if (!comment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Commentaire non trouvé'
-      });
+      return res.status(404).json({ success: false, message: 'Commentaire introuvable' });
     }
-    
-    // Récupérer les réponses si c'est un commentaire parent
-    let replies = [];
-    if (!comment.parent_comment) {
-      replies = await Comment.find({ parent_comment: commentId })
-        .populate('auteur', 'nom prenom photo_profil')
-        .sort({ creation_date: 1 })
-        .lean();
-    }
-    
-    // Récupérer l'historique des actions sur ce commentaire
-    const history = await LogAction.find({
-      $or: [
-        { 'donnees_supplementaires.comment_id': commentId },
-        { 'donnees_supplementaires.memoire_id': commentId }
-      ]
-    })
-    .populate('id_user', 'nom prenom')
-    .sort({ creation_date: -1 })
-    .limit(10)
-    .lean();
-    
-    res.json({
-      success: true,
-      data: {
-        comment,
-        replies,
-        history
-      }
-    });
+
+    res.json({ success: true, data: comment });
   } catch (error) {
-    console.error('Error fetching comment details:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la récupération des détails du commentaire'
-    });
+    console.error('getCommentDetails error:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de la récupération du commentaire' });
   }
 };
 
 /**
- * @desc    Modérer un commentaire (approuver/rejeter/supprimer)
+ * @desc    Modérer un commentaire
  * @route   PUT /api/admin/comments/:id/moderate
  * @access  Private/Admin
  */
 const moderateComment = async (req, res) => {
   try {
-    const commentId = req.params.id;
-    const { action, reason } = req.body; // action: 'approve', 'reject', 'delete'
-    
-    if (!mongoose.Types.ObjectId.isValid(commentId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'ID de commentaire invalide'
-      });
+    const { id } = req.params;
+    const { statut, raison } = req.body;
+
+    const allowed = ['ACTIF', 'SUPPRIME', 'EN_ATTENTE'];
+    if (statut && !allowed.includes(statut)) {
+      return res.status(400).json({ success: false, message: 'Statut invalide' });
     }
-    
-    if (!['approve', 'reject', 'delete'].includes(action)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Action invalide'
-      });
+
+    const updated = await Comment.findByIdAndUpdate(
+      id,
+      { ...(statut ? { statut } : {}), ...(raison ? { raison_moderation: raison } : {}) },
+      { new: true }
+    ).lean();
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Commentaire introuvable' });
     }
-    
-    const comment = await Comment.findById(commentId);
-    if (!comment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Commentaire non trouvé'
-      });
-    }
-    
-    let newStatus;
-    let actionDescription;
-    
-    switch (action) {
-      case 'approve':
-        newStatus = 'ACTIF';
-        actionDescription = 'Commentaire approuvé';
-        break;
-      case 'reject':
-        newStatus = 'MODERE';
-        actionDescription = 'Commentaire rejeté pour modération';
-        break;
-      case 'delete':
-        newStatus = 'SUPPRIME';
-        actionDescription = 'Commentaire supprimé';
-        break;
-      default:
-        newStatus = comment.statut;
-        actionDescription = 'Aucune action';
-    }
-    
-    // Mettre à jour le commentaire
-    comment.statut = newStatus;
-    comment.modified_date = Date.now();
-    comment.modified_by = req.user.id;
-    
-    // Si c'est une suppression, supprimer aussi les réponses
-    if (action === 'delete' && !comment.parent_comment) {
-      await Comment.updateMany(
-        { parent_comment: commentId },
-        {
-          statut: 'SUPPRIME',
-          modified_date: Date.now(),
-          modified_by: req.user.id
-        }
-      );
-    }
-    
-    await comment.save();
-    
-    // Journaliser l'action
-    await LogAction.create({
-      type_action: 'MODERATION_COMMENTAIRE',
-      description_action: actionDescription + (reason ? ` - Raison: ${reason}` : ''),
-      id_user: req.user.id,
-      created_by: req.user.id,
-      donnees_supplementaires: {
-        comment_id: commentId,
-        action,
-        reason,
-        old_status: comment.statut,
-        new_status: newStatus
-      }
-    });
-    
-    res.json({
-      success: true,
-      message: actionDescription,
-      data: {
-        commentId,
-        newStatus,
-        action
-      }
-    });
+
+    res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error moderating comment:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la modération du commentaire'
-    });
+    console.error('moderateComment error:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de la modération' });
   }
 };
 
 /**
- * @desc    Modération en lot
+ * @desc    Modération en masse
  * @route   PUT /api/admin/comments/bulk-moderate
  * @access  Private/Admin
  */
 const bulkModerateComments = async (req, res) => {
   try {
-    const { commentIds, action, reason } = req.body;
-    
-    if (!Array.isArray(commentIds) || commentIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Liste des IDs de commentaires requise'
-      });
+    const { ids = [], statut } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Aucun ID fourni' });
     }
-    
-    if (!['approve', 'reject', 'delete'].includes(action)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Action invalide'
-      });
+    const allowed = ['ACTIF', 'SUPPRIME', 'EN_ATTENTE'];
+    if (!allowed.includes(statut)) {
+      return res.status(400).json({ success: false, message: 'Statut invalide' });
     }
-    
-    let newStatus;
-    switch (action) {
-      case 'approve': newStatus = 'ACTIF'; break;
-      case 'reject': newStatus = 'MODERE'; break;
-      case 'delete': newStatus = 'SUPPRIME'; break;
-      default: newStatus = undefined;
-    }
-    
-    // Mettre à jour les commentaires
-    const result = await Comment.updateMany(
-      { _id: { $in: commentIds } },
-      {
-        statut: newStatus,
-        modified_date: Date.now(),
-        modified_by: req.user.id
-      }
+
+    await Comment.updateMany(
+      { _id: { $in: ids } },
+      { $set: { statut } }
     );
-    
-    // Si suppression, supprimer aussi les réponses
-    if (action === 'delete') {
-      await Comment.updateMany(
-        { parent_comment: { $in: commentIds } },
-        {
-          statut: 'SUPPRIME',
-          modified_date: Date.now(),
-          modified_by: req.user.id
-        }
-      );
-    }
-    
-    // Journaliser les actions
-    for (const commentId of commentIds) {
-      await LogAction.create({
-        type_action: 'MODERATION_COMMENTAIRE_LOT',
-        description_action: `Modération en lot: ${action}` + (reason ? ` - ${reason}` : ''),
-        id_user: req.user.id,
-        created_by: req.user.id,
-        donnees_supplementaires: {
-          comment_id: commentId,
-          action,
-          reason,
-          bulk_operation: true
-        }
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: `${result.modifiedCount} commentaires modérés`,
-      data: {
-        modifiedCount: result.modifiedCount,
-        action,
-        newStatus
-      }
-    });
+
+    res.json({ success: true, data: { count: ids.length } });
   } catch (error) {
-    console.error('Error bulk moderating comments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la modération en lot'
-    });
+    console.error('bulkModerateComments error:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de la modération en masse' });
   }
 };
 
 /**
- * @desc    Obtenir les statistiques des commentaires
+ * @desc    Statistiques commentaires
  * @route   GET /api/admin/comments/stats
  * @access  Private/Admin
  */
 const getCommentsStats = async (req, res) => {
   try {
-    const stats = await Comment.aggregate([
-      {
-        $facet: {
-          // Stats par statut
-          byStatus: [
-            { $group: { _id: '$statut', count: { $sum: 1 } } }
-          ],
-          // Stats par type (vidéo/post)
-          byType: [
-            {
-              $project: {
-                type: {
-                  $cond: [
-                    { $ifNull: ['$video_id', false] },
-                    'video',
-                    { $cond: [{ $ifNull: ['$post_id', false] }, 'post', 'other'] }
-                  ]
-                }
-              }
-            },
-            { $group: { _id: '$type', count: { $sum: 1 } } }
-          ],
-          // Répartitions signalements
-          reported: [
-            {
-              $project: {
-                isReported: {
-                  $cond: [{ $gt: [{ $size: { $ifNull: ['$signale_par', []] } }, 0] }, 1, 0]
-                }
-              }
-            },
-            { $group: { _id: '$isReported', count: { $sum: 1 } } }
-          ],
-          // Derniers 7 jours
-          last7Days: [
-            {
-              $match: {
-                creation_date: {
-                  $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-                }
-              }
-            },
-            {
-              $group: {
-                _id: {
-                  $dateToString: {
-                    format: '%Y-%m-%d',
-                    date: '$creation_date'
-                  }
-                },
-                count: { $sum: 1 }
-              }
-            },
-            { $sort: { '_id': 1 } }
-          ],
-          // Commentaires les plus signalés
-          mostReported: [
-            { $match: { 'signale_par.0': { $exists: true } } },
-            { $addFields: { reportCount: { $size: { $ifNull: ['$signale_par', []] } } } },
-            { $sort: { reportCount: -1 } },
-            { $limit: 10 },
-            {
-              $lookup: {
-                from: 'users',
-                localField: 'auteur',
-                foreignField: '_id',
-                as: 'auteur'
-              }
-            },
-            { $unwind: '$auteur' }
-          ],
-          // Total
-          total: [{ $count: 'total' }]
-        }
-      }
+    const basePipeline = [];
+
+    // Répartition par statut
+    const byStatus = await Comment.aggregate([
+      ...basePipeline,
+      { $group: { _id: '$statut', count: { $sum: 1 } } }
     ]);
-    
-    // Top 10 utilisateurs les plus actifs en commentaires
-    const topCommenters = await Comment.aggregate([
-      { $match: { statut: 'ACTIF' } },
-      { $group: { _id: '$auteur', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'user'
-        }
-      },
-      { $unwind: '$user' },
+
+    // Répartition par type (video/post/podcast/autres)
+    const byType = await Comment.aggregate([
+      ...basePipeline,
       {
         $project: {
-          user: { nom: 1, prenom: 1, photo_profil: 1 },
-          commentCount: '$count'
+          type: {
+            $cond: [
+              { $ifNull: ['$video_id', false] }, 'video',
+              {
+                $cond: [
+                  { $ifNull: ['$post_id', false] }, 'post',
+                  {
+                    $cond: [
+                      { $ifNull: ['$podcast_id', false] }, 'podcast', 'other'
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
         }
-      }
+      },
+      { $group: { _id: '$type', count: { $sum: 1 } } }
     ]);
-    
+
+    const total = await Comment.countDocuments();
+
     res.json({
       success: true,
       data: {
-        ...(stats[0] || {}),
-        topCommenters
+        total,
+        byStatus,
+        byType
       }
     });
   } catch (error) {
-    console.error('Error fetching comments stats:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la récupération des statistiques'
-    });
+    console.error('getCommentsStats error:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des statistiques' });
   }
 };
 
 /**
- * @desc    Répondre à un commentaire (en tant qu'admin)
+ * @desc    Répondre à un commentaire (admin)
  * @route   POST /api/admin/comments/:id/reply
  * @access  Private/Admin
  */
 const replyToComment = async (req, res) => {
   try {
-    const commentId = req.params.id;
+    const { id } = req.params;
     const { contenu } = req.body;
-    
+
     if (!contenu || !contenu.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Le contenu de la réponse est requis'
-      });
+      return res.status(400).json({ success: false, message: 'Contenu requis' });
     }
-    
-    const parentComment = await Comment.findById(commentId);
-    if (!parentComment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Commentaire parent non trouvé'
-      });
+
+    const parent = await Comment.findById(id).lean();
+    if (!parent) {
+      return res.status(404).json({ success: false, message: 'Commentaire introuvable' });
     }
-    
-    // Créer la réponse
+
     const reply = await Comment.create({
       contenu: contenu.trim(),
-      video_id: parentComment.video_id,
-      post_id: parentComment.post_id,
-      auteur: req.user.id,
-      parent_comment: commentId,
+      video_id: parent.video_id,
+      post_id: parent.post_id,
+      podcast_id: parent.podcast_id, // NEW (propagation)
+      auteur: req.user?.id || req.user?._id,
+      parent_comment: id,
       statut: 'ACTIF',
-      created_by: req.user.id
+      created_by: req.user?.id || req.user?._id
     });
-    
-    await reply.populate('auteur', 'nom prenom photo_profil');
-    
-    // Journaliser
-    await LogAction.create({
-      type_action: 'REPONSE_ADMIN_COMMENTAIRE',
-      description_action: 'Réponse admin à un commentaire',
-      id_user: req.user.id,
-      created_by: req.user.id,
-      donnees_supplementaires: {
-        parent_comment_id: commentId,
-        reply_id: reply._id
-      }
-    });
-    
-    res.status(201).json({
-      success: true,
-      message: 'Réponse ajoutée avec succès',
-      data: reply
-    });
+
+    res.status(201).json({ success: true, data: reply });
   } catch (error) {
-    console.error('Error replying to comment:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de l\'ajout de la réponse'
-    });
+    console.error('replyToComment error:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de l\'ajout de la réponse' });
   }
 };
 
