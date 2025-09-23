@@ -18,10 +18,10 @@ const getAllComments = async (req, res) => {
       limit = 20,
       search = '',
       status = 'all',
-      type = 'all', // all, video, post
+      type = 'all', 
       sortBy = 'recent',
       userId = null,
-      reported = 'all' // all, reported, not_reported
+      reported = 'all' 
     } = req.query;
 
     // Construction du filtre
@@ -32,15 +32,13 @@ const getAllComments = async (req, res) => {
       filter.statut = status.toUpperCase();
     }
     
-// Filtre par type (vidéo ou post) — sans exclure l'autre clé
+    // Filtre par type (vidéo ou post) 
       if (type === 'video') {
         filter.video_id = { $exists: true };
       } else if (type === 'post') {
         filter.post_id = { $exists: true };
       }
 
-
-    
     // Filtre par utilisateur spécifique
     if (userId) {
       filter.auteur = userId;
@@ -104,13 +102,12 @@ const getAllComments = async (req, res) => {
           byType: [
             {
               $project: {
-                type: {
-                  $cond: [
-                    { $ifNull: ['$video_id', false] },
-                    'video',
-                    { $cond: [{ $ifNull: ['$post_id', false] }, 'post', 'other'] }
-                  ]
-                }
+               type: {
+                $cond: [
+                  { $ifNull: ['$post_id', false] }, 'post',
+                  { $cond: [{ $ifNull: ['$video_id', false] }, 'video', 'other'] }
+                ]
+              }
               }
             },
             { $group: { _id: '$type', count: { $sum: 1 } } }
