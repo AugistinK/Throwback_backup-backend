@@ -35,6 +35,7 @@ const getAllComments = async (req, res) => {
     // Filtre par type (vidéo ou post) 
       if (type === 'video') {
         filter.video_id = { $exists: true };
+        filter.post_id = { $exists: false };
       } else if (type === 'post') {
         filter.post_id = { $exists: true };
       }
