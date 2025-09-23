@@ -102,15 +102,15 @@ const getAllComments = async (req, res) => {
           ],
           byType: [
             {
-              $project: {
-               type: {
+            $project: {
+              type: {
                 $cond: [
-                  { $ifNull: ['$post_id', false] }, 'post',
+                  { $ifNull: ['$post_id', false] }, 'post',       // priorité au post
                   { $cond: [{ $ifNull: ['$video_id', false] }, 'video', 'other'] }
                 ]
               }
-              }
-            },
+            }
+          },
             { $group: { _id: '$type', count: { $sum: 1 } } }
           ],
           reported: [
