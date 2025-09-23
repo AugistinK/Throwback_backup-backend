@@ -39,6 +39,7 @@ const getAllComments = async (req, res) => {
         filter.post_id = { $exists: true };
       }
 
+
     
     // Filtre par utilisateur spécifique
     if (userId) {
