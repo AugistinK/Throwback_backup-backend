@@ -8,10 +8,10 @@ const adminLikesController = require('../../controllers/adminLikesController');
 router.use(protect);
 router.use(authorize(['admin', 'superadmin']));
 
-// Listing & stats
 router.get('/', adminLikesController.getAllLikes);
 router.get('/stats', adminLikesController.getLikesStats);
 
+// ⚠️ /bulk avant /:id
 router.delete('/bulk', adminLikesController.bulkDeleteLikes);
 
 router.get('/:id', adminLikesController.getLikeDetails);

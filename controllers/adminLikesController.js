@@ -4,6 +4,9 @@ const Like = require('../models/Like');
 const Video = require('../models/Video');
 const Post = require('../models/Post');
 const Comment = require('../models/Comment');
+const Memory = require('../models/Memory');
+const Playlist = require('../models/Playlist');
+const Podcast = require('../models/Podcast');
 const User = require('../models/User');
 
 const toEnum = (v) => (v || '').toString().trim().toUpperCase();
@@ -12,6 +15,7 @@ const isObjectId = (v) => mongoose.Types.ObjectId.isValid(v);
 /**
  * GET /api/admin/likes
  * Query: page,limit,search,userId,type,targetId,dateFrom,dateTo,action,sortBy
+ * Types gérés: VIDEO | POST | COMMENT | MEMORY | PLAYLIST | PODCAST
  */
 const getAllLikes = async (req, res) => {
   try {
@@ -20,21 +24,20 @@ const getAllLikes = async (req, res) => {
       limit = 20,
       search = '',
       userId = '',
-      type = 'all',          
+      type = 'all',          // 'all' | 'video' | 'post' | 'comment' | 'memory' | 'playlist' | 'podcast'
       targetId = '',
       dateFrom = '',
       dateTo = '',
-      action = 'all',        
-      sortBy = 'recent'      
+      action = 'all',        // 'all' | 'like' | 'dislike'
+      sortBy = 'recent'      // 'recent' | 'oldest' | 'most_active'
     } = req.query;
 
-    // ---------- Filtre de base ----------
+    // ---------- Filtre ----------
     const filter = {};
-    if (type !== 'all') filter.type_entite = toEnum(type);      
-    if (action !== 'all') filter.type_action = toEnum(action);      
+    if (type !== 'all') filter.type_entite = toEnum(type);
+    if (action !== 'all') filter.type_action = toEnum(action);
     if (userId && isObjectId(userId)) filter.utilisateur = userId;
     if (targetId && isObjectId(targetId)) filter.entite_id = targetId;
-
     if (dateFrom || dateTo) {
       filter.creation_date = {};
       if (dateFrom) filter.creation_date.$gte = new Date(dateFrom);
@@ -46,27 +49,36 @@ const getAllLikes = async (req, res) => {
       const q = search.trim();
       const re = new RegExp(q, 'i');
 
-      // Chercher sur plusieurs collections pour obtenir des IDs correspondants
-      const [videos, posts, comments, users] = await Promise.all([
+      // On pré-récupère les IDs correspondants par collection
+      const [videos, posts, comments, memories, playlists, podcasts, users] = await Promise.all([
         Video.find({ $or: [{ titre: re }, { artiste: re }] }).select('_id').lean(),
         Post.find({ contenu: re }).select('_id').lean(),
         Comment.find({ contenu: re }).select('_id').lean(),
+        Memory.find({ contenu: re }).select('_id').lean(),               // Memory.contenu :contentReference[oaicite:0]{index=0}
+        Playlist.find({ $or: [{ nom: re }, { description: re }] }).select('_id').lean(), // Playlist.nom/description :contentReference[oaicite:1]{index=1}
+        Podcast.find({ $or: [{ title: re }, { hostName: re }, { guestName: re }, { description: re }] }).select('_id').lean(), // Podcast.title/hostName… :contentReference[oaicite:2]{index=2}
         User.find({ $or: [{ nom: re }, { prenom: re }, { email: re }] }).select('_id').lean()
       ]);
 
-      const vIds = videos.map(v => v._id);
-      const pIds = posts.map(p => p._id);
-      const cIds = comments.map(c => c._id);
-      const uIds = users.map(u => u._id);
+      const vIds = videos.map(x => x._id);
+      const pIds = posts.map(x => x._id);
+      const cIds = comments.map(x => x._id);
+      const mIds = memories.map(x => x._id);
+      const plIds = playlists.map(x => x._id);
+      const pcIds = podcasts.map(x => x._id);
+      const uIds = users.map(x => x._id);
 
       const or = [
         { type_entite: re },
-        { type_action: re }
+        { type_action: re },
       ];
-      if (uIds.length) or.push({ utilisateur: { $in: uIds } });
-      if (vIds.length) or.push({ $and: [{ type_entite: 'VIDEO' },   { entite_id: { $in: vIds } }] });
-      if (pIds.length) or.push({ $and: [{ type_entite: 'POST' },    { entite_id: { $in: pIds } }] });
-      if (cIds.length) or.push({ $and: [{ type_entite: 'COMMENT' }, { entite_id: { $in: cIds } }] });
+      if (uIds.length)  or.push({ utilisateur: { $in: uIds } });
+      if (vIds.length)  or.push({ $and: [{ type_entite: 'VIDEO' },   { entite_id: { $in: vIds } }] });
+      if (pIds.length)  or.push({ $and: [{ type_entite: 'POST' },    { entite_id: { $in: pIds } }] });
+      if (cIds.length)  or.push({ $and: [{ type_entite: 'COMMENT' }, { entite_id: { $in: cIds } }] });
+      if (mIds.length)  or.push({ $and: [{ type_entite: 'MEMORY' },  { entite_id: { $in: mIds } }] });
+      if (plIds.length) or.push({ $and: [{ type_entite: 'PLAYLIST' },{ entite_id: { $in: plIds } }] });
+      if (pcIds.length) or.push({ $and: [{ type_entite: 'PODCAST' }, { entite_id: { $in: pcIds } }] });
 
       filter.$or = or;
     }
@@ -88,38 +100,63 @@ const getAllLikes = async (req, res) => {
       .lean();
 
     // ---------- Enrichissement bulk des cibles ----------
-    const videoIds   = likes.filter(l => l.type_entite === 'VIDEO').map(l => l.entite_id).filter(Boolean);
-    const postIds    = likes.filter(l => l.type_entite === 'POST').map(l => l.entite_id).filter(Boolean);
-    const commentIds = likes.filter(l => l.type_entite === 'COMMENT').map(l => l.entite_id).filter(Boolean);
+    const idsByType = {
+      VIDEO:   likes.filter(l => l.type_entite === 'VIDEO').map(l => l.entite_id).filter(Boolean),
+      POST:    likes.filter(l => l.type_entite === 'POST').map(l => l.entite_id).filter(Boolean),
+      COMMENT: likes.filter(l => l.type_entite === 'COMMENT').map(l => l.entite_id).filter(Boolean),
+      MEMORY:  likes.filter(l => l.type_entite === 'MEMORY').map(l => l.entite_id).filter(Boolean),
+      PLAYLIST:likes.filter(l => l.type_entite === 'PLAYLIST').map(l => l.entite_id).filter(Boolean),
+      PODCAST: likes.filter(l => l.type_entite === 'PODCAST').map(l => l.entite_id).filter(Boolean),
+    };
 
-    const [videosMap, postsMap, commentsMap] = await Promise.all([
+    const [
+      videosMap, postsMap, commentsMap, memoriesMap, playlistsMap, podcastsMap
+    ] = await Promise.all([
       (async () => {
-        if (!videoIds.length) return {};
-        const arr = await Video.find({ _id: { $in: videoIds } }).select('titre artiste type').lean();
+        if (!idsByType.VIDEO.length) return {};
+        const arr = await Video.find({ _id: { $in: idsByType.VIDEO } }).select('titre artiste type').lean();
         return Object.fromEntries(arr.map(x => [x._id.toString(), x]));
       })(),
       (async () => {
-        if (!postIds.length) return {};
-        const arr = await Post.find({ _id: { $in: postIds } }).select('contenu type_media').lean();
+        if (!idsByType.POST.length) return {};
+        const arr = await Post.find({ _id: { $in: idsByType.POST } }).select('contenu type_media').lean(); // Post.contenu :contentReference[oaicite:3]{index=3}
         return Object.fromEntries(arr.map(x => [x._id.toString(), x]));
       })(),
       (async () => {
-        if (!commentIds.length) return {};
-        const arr = await Comment.find({ _id: { $in: commentIds } })
-          .select('contenu auteur')
-          .populate('auteur', 'nom prenom')
-          .lean();
+        if (!idsByType.COMMENT.length) return {};
+        const arr = await Comment.find({ _id: { $in: idsByType.COMMENT } })
+          .select('contenu auteur').populate('auteur', 'nom prenom').lean();
         return Object.fromEntries(arr.map(x => [x._id.toString(), x]));
-      })()
+      })(),
+      (async () => {
+        if (!idsByType.MEMORY.length) return {};
+        const arr = await Memory.find({ _id: { $in: idsByType.MEMORY } }).select('contenu').lean(); // Memory.contenu :contentReference[oaicite:4]{index=4}
+        return Object.fromEntries(arr.map(x => [x._id.toString(), x]));
+      })(),
+      (async () => {
+        if (!idsByType.PLAYLIST.length) return {};
+        const arr = await Playlist.find({ _id: { $in: idsByType.PLAYLIST } }).select('nom description').lean(); // Playlist.nom/description :contentReference[oaicite:5]{index=5}
+        return Object.fromEntries(arr.map(x => [x._id.toString(), x]));
+      })(),
+      (async () => {
+        if (!idsByType.PODCAST.length) return {};
+        const arr = await Podcast.find({ _id: { $in: idsByType.PODCAST } }).select('title hostName guestName description').lean(); // Podcast.title… :contentReference[oaicite:6]{index=6}
+        return Object.fromEntries(arr.map(x => [x._id.toString(), x]));
+      })(),
     ]);
 
     const rows = likes.map(like => {
       const key = like.entite_id?.toString();
       let target = null;
-      if (like.type_entite === 'VIDEO')   target = videosMap[key]   || null;
-      if (like.type_entite === 'POST')    target = postsMap[key]    || null;
-      if (like.type_entite === 'COMMENT') target = commentsMap[key] || null;
-
+      switch (like.type_entite) {
+        case 'VIDEO':   target = videosMap[key]   || null; break;
+        case 'POST':    target = postsMap[key]    || null; break;
+        case 'COMMENT': target = commentsMap[key] || null; break;
+        case 'MEMORY':  target = memoriesMap[key] || null; break;
+        case 'PLAYLIST':target = playlistsMap[key]|| null; break;
+        case 'PODCAST': target = podcastsMap[key] || null; break;
+        default: break;
+      }
       return { ...like, target };
     });
 
@@ -141,7 +178,6 @@ const getAllLikes = async (req, res) => {
 
 /**
  * GET /api/admin/likes/stats
- * Quelques stats globales (par type, par action, activité 7j)
  */
 const getLikesStats = async (req, res) => {
   try {
@@ -151,22 +187,14 @@ const getLikesStats = async (req, res) => {
     const stats = await Like.aggregate([
       {
         $facet: {
-          byType: [
-            { $group: { _id: '$type_entite', count: { $sum: 1 } } },
-            { $sort: { count: -1 } }
-          ],
-          byAction: [
-            { $group: { _id: '$type_action', count: { $sum: 1 } } },
-            { $sort: { count: -1 } }
-          ],
+          byType:   [{ $group: { _id: '$type_entite', count: { $sum: 1 } } }, { $sort: { count: -1 } }],
+          byAction: [{ $group: { _id: '$type_action', count: { $sum: 1 } } }, { $sort: { count: -1 } }],
           last7Days: [
             { $match: { creation_date: { $gte: d7 } } },
             { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$creation_date' } }, count: { $sum: 1 } } },
             { $sort: { _id: 1 } }
           ],
-          total: [
-            { $count: 'count' }
-          ]
+          total: [{ $count: 'count' }]
         }
       }
     ]);
@@ -197,13 +225,13 @@ const getLikeDetails = async (req, res) => {
     }
 
     let target = null;
-    if (like.type_entite === 'VIDEO') {
-      target = await Video.findById(like.entite_id).select('titre artiste type').lean();
-    } else if (like.type_entite === 'POST') {
-      target = await Post.findById(like.entite_id).select('contenu type_media').lean();
-    } else if (like.type_entite === 'COMMENT') {
-      target = await Comment.findById(like.entite_id).select('contenu auteur').populate('auteur','nom prenom').lean();
-    }
+    const key = like.entite_id;
+    if (like.type_entite === 'VIDEO')   target = await Video.findById(key).select('titre artiste type').lean();
+    if (like.type_entite === 'POST')    target = await Post.findById(key).select('contenu type_media').lean();     // :contentReference[oaicite:7]{index=7}
+    if (like.type_entite === 'COMMENT') target = await Comment.findById(key).select('contenu auteur').populate('auteur','nom prenom').lean();
+    if (like.type_entite === 'MEMORY')  target = await Memory.findById(key).select('contenu').lean();              // :contentReference[oaicite:8]{index=8}
+    if (like.type_entite === 'PLAYLIST')target = await Playlist.findById(key).select('nom description').lean();    // :contentReference[oaicite:9]{index=9}
+    if (like.type_entite === 'PODCAST') target = await Podcast.findById(key).select('title hostName guestName description').lean(); // :contentReference[oaicite:10]{index=10}
 
     return res.json({ success: true, data: { ...like, target } });
   } catch (error) {
