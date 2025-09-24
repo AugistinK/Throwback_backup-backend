@@ -11,7 +11,6 @@ router.use(authorize(['admin', 'superadmin']));
 router.get('/', adminLikesController.getAllLikes);
 router.get('/stats', adminLikesController.getLikesStats);
 
-// ⚠️ /bulk avant /:id
 router.delete('/bulk', adminLikesController.bulkDeleteLikes);
 
 router.get('/:id', adminLikesController.getLikeDetails);
