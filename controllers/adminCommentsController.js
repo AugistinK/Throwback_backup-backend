@@ -105,7 +105,7 @@ const getAllComments = async (req, res) => {
             $project: {
               type: {
                 $cond: [
-                  { $ifNull: ['$post_id', false] }, 'post',       // priorité au post
+                  { $ifNull: ['$post_id', false] }, 'post',       
                   { $cond: [{ $ifNull: ['$video_id', false] }, 'video', 'other'] }
                 ]
               }

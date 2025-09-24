@@ -8,10 +8,13 @@ const adminLikesController = require('../../controllers/adminLikesController');
 router.use(protect);
 router.use(authorize(['admin', 'superadmin']));
 
+// Listing & stats
 router.get('/', adminLikesController.getAllLikes);
 router.get('/stats', adminLikesController.getLikesStats);
+
+router.delete('/bulk', adminLikesController.bulkDeleteLikes);
+
 router.get('/:id', adminLikesController.getLikeDetails);
 router.delete('/:id', adminLikesController.deleteLike);
-router.delete('/bulk', adminLikesController.bulkDeleteLikes);
 
 module.exports = router;
