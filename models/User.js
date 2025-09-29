@@ -12,7 +12,7 @@ const userSchema = new Schema(
     mot_de_passe: { type: String, required: true, select: false },
     profession: String,
     telephone: String,
-    photo_profil: {data : Buffer, contentType: String},
+    photo_profil: String,
     bio: String,
     date_naissance: Date,
     genre: { type: String, enum: ["Homme", "Femme", "Autre"], default: "Homme" },
