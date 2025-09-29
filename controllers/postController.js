@@ -19,7 +19,7 @@ exports.getPosts = async (req, res) => {
     const skip = (page - 1) * limit;
     const hashtag = req.query.hashtag;
     const userId = req.query.userId;
-    const sort = req.query.sort || 'recent'; // 'recent', 'popular'
+    const sort = req.query.sort || 'recent'; 
 
     // Construction du filtre
     const filter = {};
@@ -55,7 +55,7 @@ exports.getPosts = async (req, res) => {
     }
     
     // Détermination du tri
-    let sortOption = { createdAt: -1 }; // Par défaut, du plus récent au plus ancien
+    let sortOption = { createdAt: -1 }; 
     if (sort === 'popular') {
       // Trier par popularité (nombre de likes + commentaires)
       sortOption = { likes: -1, commentaires: -1, createdAt: -1 };

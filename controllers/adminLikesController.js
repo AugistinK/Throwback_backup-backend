@@ -1,14 +1,13 @@
 // controllers/adminLikesController.js
 const mongoose = require('mongoose');
 
-// ⚠️ Ajuste ces chemins si besoin (../ vs ./)
 const Like     = require('../models/Like');
 const Video    = require('../models/Video');
 const Post     = require('../models/Post');
 const Comment  = require('../models/Comment');
-const Memory   = require('../models/Memory');   // contient 'contenu' :contentReference[oaicite:1]{index=1}
-const Playlist = require('../models/Playlist'); // contient 'nom'/'description' :contentReference[oaicite:2]{index=2}
-const Podcast  = require('../models/Podcast');  // contient 'title'/'hostName'/'guestName'/'description' :contentReference[oaicite:3]{index=3}
+const Memory   = require('../models/Memory');   
+const Playlist = require('../models/Playlist'); 
+const Podcast  = require('../models/Podcast');  
 
 const isObjectId = (v) => mongoose.Types.ObjectId.isValid(v);
 const toEnum = (v = '') => v.toString().trim().toUpperCase();
@@ -179,7 +178,7 @@ const getAllLikes = async (req, res) => {
       })(),
     ]);
 
-    // Construction des lignes (on garde compat vidéo/post si like.video_id/post_id existent)
+    // Construction des lignes 
     const rows = likes.map((l) => {
       const key = l.entite_id?.toString();
       let target = null;
