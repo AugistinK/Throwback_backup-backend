@@ -5,8 +5,8 @@ const ctrl = require('../controllers/searchController');
 
 // Limiteur léger pour l’autocomplétion (éviter le spam)
 const suggestionsLimiter = rateLimit({
-  windowMs: 10 * 1000, // 10s
-  max: 20,             // 20 requêtes par 10s par IP
+  windowMs: 10 * 1000,
+  max: 20,             
   standardHeaders: true,
   legacyHeaders: false,
 });
