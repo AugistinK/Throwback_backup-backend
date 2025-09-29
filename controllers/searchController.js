@@ -1,752 +1,297 @@
+// controllers/searchController.js
 const mongoose = require('mongoose');
+
+// Déclare tes modèles (assume qu'ils sont déjà enregistrés quelque part)
 const Video = mongoose.model('Video');
 const Playlist = mongoose.model('Playlist');
 const Podcast = mongoose.model('Podcast');
 const LiveStream = mongoose.model('LiveStream');
 
+/* ------------------------------ Utils ------------------------------ */
+
+function parsePositiveInt(v, dft, min = 1, max = 100) {
+  const n = parseInt(v, 10);
+  if (Number.isNaN(n)) return dft;
+  return Math.max(min, Math.min(max, n));
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/* --------------------------- Global Search -------------------------- */
 /**
- * @desc    Recherche globale sur tous les types de contenu
+ * @desc    Recherche globale
  * @route   GET /api/search
  * @access  Public
+ * @query   query, page=1, limit=10, type=all|videos|playlists|podcasts|livestreams
  */
 exports.globalSearch = async (req, res) => {
   try {
-    const { query, page = 1, limit = 10, type = 'all' } = req.query;
-    
-    if (!query) {
-      return res.status(400).json({
-        success: false,
-        message: "Le terme de recherche est requis"
-      });
+    const rawQuery = (req.query.query || '').trim();
+    const type = (req.query.type || 'all').toLowerCase();
+    const page = parsePositiveInt(req.query.page, 1, 1, 100000);
+    const limit = parsePositiveInt(req.query.limit, 10, 1, 50);
+
+    if (!rawQuery) {
+      return res.json({ success: true, data: { videos: [], playlists: [], podcasts: [], livestreams: [] } });
     }
 
-    const searchRegex = new RegExp(query, 'i');
     const skip = (page - 1) * limit;
-    let results = {};
-    let promises = [];
-    
-    // Définir les types de contenu à rechercher
-    const contentTypes = type === 'all' 
-      ? ['videos', 'playlists', 'podcasts', 'livestreams'] 
-      : [type];
-    
-    // Recherche de vidéos
-    if (contentTypes.includes('videos') || contentTypes.includes('all')) {
-      const videoPromise = Video.find({
-        $or: [
-          { titre: searchRegex },
-          { description: searchRegex },
-          { artiste: searchRegex },
-          { 'meta.tags': searchRegex }
-        ]
-      })
-      .populate('auteur', 'nom prenom photo_profil')
-      .sort({ vues: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .exec()
-      .then(async (videos) => {
-        const count = await Video.countDocuments({
-          $or: [
-            { titre: searchRegex },
-            { description: searchRegex },
-            { artiste: searchRegex },
-            { 'meta.tags': searchRegex }
-          ]
-        });
-        
-        return {
-          videos,
-          count
-        };
-      });
-      
-      promises.push(videoPromise);
+
+    const rx = { $regex: escapeRegExp(rawQuery), $options: 'i' };
+
+    const tasks = [];
+
+    const wantAll = type === 'all';
+
+    if (wantAll || type === 'videos') {
+      tasks.push(
+        Video.find({ $or: [{ titre: rx }, { description: rx }, { tags: rx }, { artiste: rx }] })
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean()
+          .then((items) => ({ key: 'videos', items }))
+      );
     }
-    
-    // Recherche de playlists
-    if (contentTypes.includes('playlists') || contentTypes.includes('all')) {
-      const playlistPromise = Playlist.find({
-        $and: [
-          { 
-            $or: [
-              { nom: searchRegex },
-              { description: searchRegex },
-              { tags: searchRegex }
-            ]
-          },
-          { visibilite: 'PUBLIC' }
-        ]
-      })
-      .populate('proprietaire', 'nom prenom photo_profil')
-      .sort({ nb_lectures: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .exec()
-      .then(async (playlists) => {
-        const count = await Playlist.countDocuments({
-          $and: [
-            { 
-              $or: [
-                { nom: searchRegex },
-                { description: searchRegex },
-                { tags: searchRegex }
-              ]
-            },
-            { visibilite: 'PUBLIC' }
-          ]
-        });
-        
-        return {
-          playlists,
-          count
-        };
-      });
-      
-      promises.push(playlistPromise);
+
+    if (wantAll || type === 'playlists') {
+      tasks.push(
+        Playlist.find({ public: true, $or: [{ nom: rx }, { description: rx }] })
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean()
+          .then((items) => ({ key: 'playlists', items }))
+      );
     }
-    
-    // Recherche de podcasts
-    if (contentTypes.includes('podcasts') || contentTypes.includes('all')) {
-      const podcastPromise = Podcast.find({
-        $and: [
-          { 
-            $or: [
-              { title: searchRegex },
-              { description: searchRegex },
-              { guestName: searchRegex },
-              { topics: searchRegex }
-            ]
-          },
-          { isPublished: true }
-        ]
-      })
-      .populate('author', 'nom prenom photo_profil')
-      .sort({ publishDate: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .exec()
-      .then(async (podcasts) => {
-        const count = await Podcast.countDocuments({
-          $and: [
-            { 
-              $or: [
-                { title: searchRegex },
-                { description: searchRegex },
-                { guestName: searchRegex },
-                { topics: searchRegex }
-              ]
-            },
-            { isPublished: true }
-          ]
-        });
-        
-        return {
-          podcasts,
-          count
-        };
-      });
-      
-      promises.push(podcastPromise);
+
+    if (wantAll || type === 'podcasts') {
+      tasks.push(
+        Podcast.find({ $or: [{ titre: rx }, { description: rx }, { host: rx }] })
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean()
+          .then((items) => ({ key: 'podcasts', items }))
+      );
     }
-    
-    // Recherche de livestreams
-    if (contentTypes.includes('livestreams') || contentTypes.includes('all')) {
-      const livestreamPromise = LiveStream.find({
-        $and: [
-          { 
-            $or: [
-              { title: searchRegex },
-              { description: searchRegex },
-              { hostName: searchRegex },
-              { guests: searchRegex },
-              { tags: searchRegex }
-            ]
-          },
-          { 
-            $or: [
-              { status: 'LIVE' },
-              { status: 'SCHEDULED' }
-            ]
-          },
-          { isPublic: true }
-        ]
-      })
-      .populate('author', 'nom prenom photo_profil')
-      .sort({ scheduledStartTime: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .exec()
-      .then(async (livestreams) => {
-        const count = await LiveStream.countDocuments({
-          $and: [
-            { 
-              $or: [
-                { title: searchRegex },
-                { description: searchRegex },
-                { hostName: searchRegex },
-                { guests: searchRegex },
-                { tags: searchRegex }
-              ]
-            },
-            { 
-              $or: [
-                { status: 'LIVE' },
-                { status: 'SCHEDULED' }
-              ]
-            },
-            { isPublic: true }
-          ]
-        });
-        
-        return {
-          livestreams,
-          count
-        };
-      });
-      
-      promises.push(livestreamPromise);
+
+    if (wantAll || type === 'livestreams') {
+      tasks.push(
+        LiveStream.find({ $or: [{ titre: rx }, { description: rx }, { category: rx }] })
+          .sort({ startTime: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean()
+          .then((items) => ({ key: 'livestreams', items }))
+      );
     }
-    
-    // Exécuter toutes les recherches en parallèle
-    const searchResults = await Promise.all(promises);
-    
-    // Organiser les résultats par type
-    if (contentTypes.includes('videos') || contentTypes.includes('all')) {
-      const videoResults = searchResults.shift();
-      results.videos = {
-        items: videoResults.videos,
-        total: videoResults.count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(videoResults.count / limit)
-      };
-    }
-    
-    if (contentTypes.includes('playlists') || contentTypes.includes('all')) {
-      const playlistResults = searchResults.shift();
-      results.playlists = {
-        items: playlistResults.playlists,
-        total: playlistResults.count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(playlistResults.count / limit)
-      };
-    }
-    
-    if (contentTypes.includes('podcasts') || contentTypes.includes('all')) {
-      const podcastResults = searchResults.shift();
-      results.podcasts = {
-        items: podcastResults.podcasts,
-        total: podcastResults.count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(podcastResults.count / limit)
-      };
-    }
-    
-    if (contentTypes.includes('livestreams') || contentTypes.includes('all')) {
-      const livestreamResults = searchResults.shift();
-      results.livestreams = {
-        items: livestreamResults.livestreams,
-        total: livestreamResults.count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(livestreamResults.count / limit)
-      };
-    }
-    
-    // Ajouter des méta-informations sur la recherche
-    results.meta = {
-      query,
-      type,
-      timestamp: new Date().toISOString()
-    };
-    
-    // Renvoyer les résultats
-    return res.json({
-      success: true,
-      data: results
-    });
-    
+
+    const parts = await Promise.all(tasks);
+    const data = { videos: [], playlists: [], podcasts: [], livestreams: [] };
+    for (const p of parts) data[p.key] = p.items;
+
+    return res.json({ success: true, data });
   } catch (error) {
-    console.error("Erreur lors de la recherche globale:", error);
+    console.error('Erreur globalSearch:', error);
     return res.status(500).json({
       success: false,
-      message: "Une erreur est survenue lors de la recherche",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Une erreur est survenue lors de la recherche',
     });
   }
 };
 
+/* --------------------------- Per-type Search --------------------------- */
 /**
- * @desc    Recherche spécifique de vidéos
- * @route   GET /api/search/videos
- * @access  Public
+ * @route GET /api/search/videos
+ * @query query, page=1, limit=12, genre, decennie, sort=relevance|newest|views
  */
 exports.searchVideos = async (req, res) => {
   try {
-    const { query, page = 1, limit = 12, genre, decennie, sort = 'relevance' } = req.query;
-    
-    if (!query) {
-      return res.status(400).json({
-        success: false,
-        message: "Le terme de recherche est requis"
-      });
-    }
-
-    const searchRegex = new RegExp(query, 'i');
+    const rawQuery = (req.query.query || '').trim();
+    const page = parsePositiveInt(req.query.page, 1, 1, 100000);
+    const limit = parsePositiveInt(req.query.limit, 12, 1, 50);
     const skip = (page - 1) * limit;
-    
-    // Construire le filtre de recherche
-    const filter = {
-      $or: [
-        { titre: searchRegex },
-        { description: searchRegex },
-        { artiste: searchRegex },
-        { 'meta.tags': searchRegex }
-      ]
+
+    const { genre = null, decennie = null, sort = 'relevance' } = req.query;
+
+    const filter = {};
+    if (rawQuery) {
+      const rx = { $regex: escapeRegExp(rawQuery), $options: 'i' };
+      filter.$or = [{ titre: rx }, { description: rx }, { artiste: rx }, { tags: rx }];
+    }
+    if (genre) filter.genre = genre;
+    if (decennie) filter.decennie = decennie;
+
+    const sortMap = {
+      relevance: { createdAt: -1 },
+      newest: { createdAt: -1 },
+      views: { vues: -1 },
     };
-    
-    // Ajouter des filtres optionnels
-    if (genre) {
-      filter.genre = genre;
-    }
-    
-    if (decennie) {
-      filter.decennie = decennie;
-    }
-    
-    // Déterminer le tri
-    let sortOption = {};
-    switch (sort) {
-      case 'views':
-        sortOption = { vues: -1 };
-        break;
-      case 'newest':
-        sortOption = { createdAt: -1 };
-        break;
-      case 'oldest':
-        sortOption = { createdAt: 1 };
-        break;
-      case 'likes':
-        sortOption = { likes: -1 };
-        break;
-      case 'relevance':
-      default:
-        // Tri par pertinence (basé sur la correspondance du titre, puis les vues)
-        sortOption = { score: { $meta: "textScore" }, vues: -1 };
-        break;
-    }
-    
-    // Exécuter la recherche
-    const videos = await Video.find(filter)
-      .populate('auteur', 'nom prenom photo_profil')
-      .sort(sortOption)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .exec();
-    
-    // Compter le nombre total de résultats
-    const total = await Video.countDocuments(filter);
-    
-    return res.json({
-      success: true,
-      data: {
-        items: videos,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / limit)
-      },
-      meta: {
-        query,
-        filters: {
-          genre,
-          decennie,
-          sort
-        }
-      }
-    });
-    
+
+    const items = await Video.find(filter).sort(sortMap[sort] || sortMap.relevance).skip(skip).limit(limit).lean();
+    return res.json({ success: true, data: items });
   } catch (error) {
-    console.error("Erreur lors de la recherche de vidéos:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de la recherche de vidéos",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    console.error('Erreur searchVideos:', error);
+    return res.status(500).json({ success: false, message: 'Erreur recherche vidéos' });
   }
 };
 
 /**
- * @desc    Recherche spécifique de playlists
- * @route   GET /api/search/playlists
- * @access  Public
+ * @route GET /api/search/playlists
+ * @query query, page=1, limit=12, sort=popularity|newest
  */
 exports.searchPlaylists = async (req, res) => {
   try {
-    const { query, page = 1, limit = 12, sort = 'popularity' } = req.query;
-    
-    if (!query) {
-      return res.status(400).json({
-        success: false,
-        message: "Le terme de recherche est requis"
-      });
+    const rawQuery = (req.query.query || '').trim();
+    const page = parsePositiveInt(req.query.page, 1, 1, 100000);
+    const limit = parsePositiveInt(req.query.limit, 12, 1, 50);
+    const skip = (page - 1) * limit;
+
+    const { sort = 'popularity' } = req.query;
+
+    const filter = { public: true };
+    if (rawQuery) {
+      const rx = { $regex: escapeRegExp(rawQuery), $options: 'i' };
+      filter.$or = [{ nom: rx }, { description: rx }];
     }
 
-    const searchRegex = new RegExp(query, 'i');
-    const skip = (page - 1) * limit;
-    
-    // Construire le filtre de recherche (uniquement les playlists publiques)
-    const filter = {
-      $and: [
-        { 
-          $or: [
-            { nom: searchRegex },
-            { description: searchRegex },
-            { tags: searchRegex }
-          ]
-        },
-        { visibilite: 'PUBLIC' }
-      ]
+    const sortMap = {
+      popularity: { followersCount: -1, createdAt: -1 },
+      newest: { createdAt: -1 },
     };
-    
-    // Déterminer le tri
-    let sortOption = {};
-    switch (sort) {
-      case 'newest':
-        sortOption = { creation_date: -1 };
-        break;
-      case 'oldest':
-        sortOption = { creation_date: 1 };
-        break;
-      case 'favorites':
-        sortOption = { nb_favoris: -1 };
-        break;
-      case 'popularity':
-      default:
-        sortOption = { nb_lectures: -1 };
-        break;
-    }
-    
-    // Exécuter la recherche
-    const playlists = await Playlist.find(filter)
-      .populate('proprietaire', 'nom prenom photo_profil')
-      .sort(sortOption)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .exec();
-    
-    // Compter le nombre total de résultats
-    const total = await Playlist.countDocuments(filter);
-    
-    return res.json({
-      success: true,
-      data: {
-        items: playlists,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / limit)
-      },
-      meta: {
-        query,
-        filters: {
-          sort
-        }
-      }
-    });
-    
+
+    const items = await Playlist.find(filter).sort(sortMap[sort] || sortMap.popularity).skip(skip).limit(limit).lean();
+    return res.json({ success: true, data: items });
   } catch (error) {
-    console.error("Erreur lors de la recherche de playlists:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de la recherche de playlists",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    console.error('Erreur searchPlaylists:', error);
+    return res.status(500).json({ success: false, message: 'Erreur recherche playlists' });
   }
 };
 
 /**
- * @desc    Recherche spécifique de podcasts
- * @route   GET /api/search/podcasts
- * @access  Public
+ * @route GET /api/search/podcasts
+ * @query query, page=1, limit=12, category, sort=newest|popular
  */
 exports.searchPodcasts = async (req, res) => {
   try {
-    const { query, page = 1, limit = 12, category, sort = 'newest' } = req.query;
-    
-    if (!query) {
-      return res.status(400).json({
-        success: false,
-        message: "Le terme de recherche est requis"
-      });
-    }
-
-    const searchRegex = new RegExp(query, 'i');
+    const rawQuery = (req.query.query || '').trim();
+    const page = parsePositiveInt(req.query.page, 1, 1, 100000);
+    const limit = parsePositiveInt(req.query.limit, 12, 1, 50);
     const skip = (page - 1) * limit;
-    
-    // Construire le filtre de recherche (uniquement les podcasts publiés)
-    const filter = {
-      $and: [
-        { 
-          $or: [
-            { title: searchRegex },
-            { description: searchRegex },
-            { guestName: searchRegex },
-            { topics: searchRegex }
-          ]
-        },
-        { isPublished: true }
-      ]
+
+    const { category = null, sort = 'newest' } = req.query;
+
+    const filter = {};
+    if (rawQuery) {
+      const rx = { $regex: escapeRegExp(rawQuery), $options: 'i' };
+      filter.$or = [{ titre: rx }, { description: rx }, { host: rx }];
+    }
+    if (category) filter.category = category;
+
+    const sortMap = {
+      newest: { createdAt: -1 },
+      popular: { listens: -1, createdAt: -1 },
     };
-    
-    // Ajouter des filtres optionnels
-    if (category) {
-      filter.category = category;
-    }
-    
-    // Déterminer le tri
-    let sortOption = {};
-    switch (sort) {
-      case 'popular':
-        sortOption = { viewCount: -1 };
-        break;
-      case 'likes':
-        sortOption = { likeCount: -1 };
-        break;
-      case 'newest':
-      default:
-        sortOption = { publishDate: -1 };
-        break;
-    }
-    
-    // Exécuter la recherche
-    const podcasts = await Podcast.find(filter)
-      .populate('author', 'nom prenom photo_profil')
-      .sort(sortOption)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .exec();
-    
-    // Compter le nombre total de résultats
-    const total = await Podcast.countDocuments(filter);
-    
-    return res.json({
-      success: true,
-      data: {
-        items: podcasts,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / limit)
-      },
-      meta: {
-        query,
-        filters: {
-          category,
-          sort
-        }
-      }
-    });
-    
+
+    const items = await Podcast.find(filter).sort(sortMap[sort] || sortMap.newest).skip(skip).limit(limit).lean();
+    return res.json({ success: true, data: items });
   } catch (error) {
-    console.error("Erreur lors de la recherche de podcasts:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de la recherche de podcasts",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    console.error('Erreur searchPodcasts:', error);
+    return res.status(500).json({ success: false, message: 'Erreur recherche podcasts' });
   }
 };
 
 /**
- * @desc    Recherche spécifique de livestreams
- * @route   GET /api/search/livestreams
- * @access  Public
+ * @route GET /api/search/livestreams
+ * @query query, page=1, limit=12, status=all|upcoming|live|ended, category
  */
 exports.searchLivestreams = async (req, res) => {
   try {
-    const { query, page = 1, limit = 12, status = 'all', category } = req.query;
-    
-    if (!query) {
-      return res.status(400).json({
-        success: false,
-        message: "Le terme de recherche est requis"
-      });
-    }
-
-    const searchRegex = new RegExp(query, 'i');
+    const rawQuery = (req.query.query || '').trim();
+    const page = parsePositiveInt(req.query.page, 1, 1, 100000);
+    const limit = parsePositiveInt(req.query.limit, 12, 1, 50);
     const skip = (page - 1) * limit;
-    
-    // Construire le filtre de recherche (uniquement les livestreams publics)
-    const filter = {
-      $and: [
-        { 
-          $or: [
-            { title: searchRegex },
-            { description: searchRegex },
-            { hostName: searchRegex },
-            { guests: searchRegex },
-            { tags: searchRegex }
-          ]
-        },
-        { isPublic: true }
-      ]
-    };
-    
-    // Filtrer par statut
-    if (status !== 'all') {
-      filter.status = status.toUpperCase();
-    } else {
-      filter.$and.push({
-        $or: [
-          { status: 'LIVE' },
-          { status: 'SCHEDULED' }
-        ]
-      });
+
+    const { status = 'all', category = null } = req.query;
+
+    const filter = {};
+    if (rawQuery) {
+      const rx = { $regex: escapeRegExp(rawQuery), $options: 'i' };
+      filter.$or = [{ titre: rx }, { description: rx }, { category: rx }];
     }
-    
-    // Ajouter des filtres optionnels
-    if (category) {
-      filter.category = category;
-    }
-    
-    // Tri: Les LIVE d'abord, puis les programmés par date
-    const sortOption = { 
-      status: -1, // 'LIVE' avant 'SCHEDULED'
-      scheduledStartTime: 1 
-    };
-    
-    // Exécuter la recherche
-    const livestreams = await LiveStream.find(filter)
-      .populate('author', 'nom prenom photo_profil')
-      .sort(sortOption)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .exec();
-    
-    // Compter le nombre total de résultats
-    const total = await LiveStream.countDocuments(filter);
-    
-    return res.json({
-      success: true,
-      data: {
-        items: livestreams,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / limit)
-      },
-      meta: {
-        query,
-        filters: {
-          status,
-          category
-        }
-      }
-    });
-    
+    if (category) filter.category = category;
+
+    const now = new Date();
+    if (status === 'upcoming') filter.startTime = { $gt: now };
+    if (status === 'ended') filter.endTime = { $lt: now };
+    if (status === 'live') filter.$and = [{ startTime: { $lte: now } }, { endTime: { $gte: now } }];
+
+    const items = await LiveStream.find(filter).sort({ startTime: -1 }).skip(skip).limit(limit).lean();
+    return res.json({ success: true, data: items });
   } catch (error) {
-    console.error("Erreur lors de la recherche de livestreams:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Une erreur est survenue lors de la recherche de livestreams",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    console.error('Erreur searchLivestreams:', error);
+    return res.status(500).json({ success: false, message: 'Erreur recherche livestreams' });
   }
 };
 
+/* ------------------------ Suggestions (Autocomplete) ------------------------ */
 /**
- * @desc    Récupérer les suggestions de recherche
+ * @desc    Suggestions de recherche
  * @route   GET /api/search/suggestions
  * @access  Public
+ * @query   query (min 2), limit=8
+ * @return  { success, data: Array<{type,text,query}> }
  */
 exports.getSearchSuggestions = async (req, res) => {
   try {
-    const { query, limit = 5 } = req.query;
-    
-    if (!query || query.length < 2) {
-      return res.json({
-        success: true,
-        data: []
-      });
+    const rawQuery = (req.query.query || '').trim();
+    const limitNum = parsePositiveInt(req.query.limit, 8, 1, 20);
+
+    if (rawQuery.length < 2) {
+      return res.json({ success: true, data: [] });
     }
 
-    const searchRegex = new RegExp('^' + query, 'i');
-    
-    // Rechercher dans les vidéos
-    const videoTitles = await Video.find({ titre: searchRegex })
-      .select('titre')
-      .limit(limit)
-      .lean();
-    
-    // Rechercher dans les playlists
-    const playlistNames = await Playlist.find({ 
-      nom: searchRegex,
-      visibilite: 'PUBLIC'
-    })
-      .select('nom')
-      .limit(limit)
-      .lean();
-    
-    // Rechercher dans les artistes
-    const artists = await Video.aggregate([
-      { $match: { artiste: searchRegex } },
-      { $group: { _id: '$artiste' } },
-      { $limit: limit }
+    // Regex de préfixe (accélère les indexes, évite les backtracking fous)
+    const rx = { $regex: '^' + escapeRegExp(rawQuery), $options: 'i' };
+
+    const [videoHits, playlistHits, artistHits] = await Promise.all([
+      // Vidéos: titre
+      Video.find({ titre: rx }).select({ _id: 0, titre: 1 }).limit(limitNum).lean(),
+
+      // Playlists publiques: nom
+      Playlist.find({ public: true, nom: rx }).select({ _id: 0, nom: 1 }).limit(limitNum).lean(),
+
+      // Artistes distincts depuis Video (adapte si tu as une collection Artists)
+      Video.aggregate([
+        { $match: { artiste: rx } },
+        { $group: { _id: '$artiste' } },
+        { $limit: limitNum },
+      ]),
     ]);
-    
-    // Fusionner et formater les suggestions
-    const suggestions = [
-      ...videoTitles.map(v => ({ 
-        type: 'video', 
-        text: v.titre,
-        query: v.titre
-      })),
-      ...playlistNames.map(p => ({ 
-        type: 'playlist', 
-        text: p.nom,
-        query: p.nom
-      })),
-      ...artists.map(a => ({ 
-        type: 'artist', 
-        text: a._id,
-        query: a._id
-      }))
+
+    let suggestions = [
+      ...videoHits.map((v) => ({ type: 'video', text: v.titre, query: v.titre })),
+      ...playlistHits.map((p) => ({ type: 'playlist', text: p.nom, query: p.nom })),
+      ...artistHits.map((a) => ({ type: 'artist', text: a._id, query: a._id })),
     ];
-    
-    // Trier par pertinence et limiter le nombre total
-    const sortedSuggestions = suggestions
-      .sort((a, b) => {
-        // Les correspondances exactes d'abord
-        if (a.text.toLowerCase() === query.toLowerCase()) return -1;
-        if (b.text.toLowerCase() === query.toLowerCase()) return 1;
-        
-        // Puis les correspondances qui commencent par la requête
-        const aStartsWith = a.text.toLowerCase().startsWith(query.toLowerCase());
-        const bStartsWith = b.text.toLowerCase().startsWith(query.toLowerCase());
-        
-        if (aStartsWith && !bStartsWith) return -1;
-        if (bStartsWith && !aStartsWith) return 1;
-        
-        // Enfin par longueur (les plus courts d'abord)
-        return a.text.length - b.text.length;
-      })
-      .slice(0, limit);
-    
-    return res.json({
-      success: true,
-      data: sortedSuggestions
-    });
-    
+
+    // dédoublonner (type+text)
+    suggestions = suggestions.filter(
+      (s, i, arr) => arr.findIndex((t) => t.type === s.type && t.text === s.text) === i
+    );
+
+    // couper au total
+    suggestions = suggestions.slice(0, limitNum);
+
+    return res.json({ success: true, data: suggestions });
   } catch (error) {
-    console.error("Erreur lors de la récupération des suggestions:", error);
+    console.error('Erreur lors de la récupération des suggestions:', error);
     return res.status(500).json({
       success: false,
-      message: "Une erreur est survenue lors de la récupération des suggestions",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Une erreur est survenue lors de la récupération des suggestions',
     });
   }
 };

@@ -758,6 +758,9 @@ try {
 const adminLikesRoutes = require('./routes/api/adminLikesRoutes');
 app.use('/api/admin/likes', adminLikesRoutes);
 
+// Roures Search
+app.use('/api', require('./routes/search'));
+// Fin
 
 // Routes memories
 try {
