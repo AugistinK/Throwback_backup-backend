@@ -19,9 +19,6 @@ router.put('/profile',
   userProfileController.updateProfile
 );
 
-
-
-
 router.post('/profile/photo',
   protect,
   userProfileController.checkContentType,
@@ -30,12 +27,6 @@ router.post('/profile/photo',
   logAction('UPLOAD_PHOTO_PROFIL','Upload photo profil'),
   userProfileController.uploadProfilePhoto
 );
-
-
-
-
-
-
 
 router.post('/profile/cover',
   protect,
