@@ -1,8 +1,18 @@
+// models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Schema, model } = mongoose;
+
+// Sous-schema pour une image stockée en BD (binaire + type MIME)
+const imageSchema = new Schema(
+  {
+    data: Buffer,        
+    contentType: String  
+  },
+  { _id: false }
+);
 
 const userSchema = new Schema(
   {
@@ -12,7 +22,12 @@ const userSchema = new Schema(
     mot_de_passe: { type: String, required: true, select: false },
     profession: String,
     telephone: String,
-    photo_profil: String,
+
+    photo_profil: imageSchema,
+
+    // (optionnel) tu peux activer la même logique pour la couverture plus tard :
+    // photo_couverture: imageSchema,
+
     bio: String,
     date_naissance: Date,
     genre: { type: String, enum: ["Homme", "Femme", "Autre"], default: "Homme" },
@@ -32,7 +47,6 @@ const userSchema = new Schema(
     compte_prive: { type: Boolean, default: false },
     preferences_confidentialite: { type: Map, of: mongoose.Schema.Types.Mixed },
     preferences_notification: { type: Map, of: Boolean },
-    // Champ role unique avec énumération des rôles possibles
     role: { 
       type: String, 
       enum: ['user', 'admin', 'superadmin'],
@@ -52,12 +66,11 @@ const userSchema = new Schema(
 /**
  * Génère un token pour la vérification d'email
  * Le token est valide pour 7 jours (604800000 ms)
- * @returns {string} Le token généré
  */
 userSchema.methods.generateVerificationToken = function() {
   const token = crypto.randomBytes(32).toString('hex');
   this.token_verification = token;
-  this.token_verification_expiration = Date.now() + 604800000; // 7 jours
+  this.token_verification_expiration = Date.now() + 604800000; 
   return token;
 };
 
@@ -68,23 +81,13 @@ userSchema.methods.generateVerificationToken = function() {
  */
 userSchema.methods.generatePasswordResetToken = function() {
   const resetToken = crypto.randomBytes(20).toString('hex');
-  
-  // Hash token et le sauvegarder dans la base de données
-  this.password_reset_token = crypto
-    .createHash('sha256')
-    .update(resetToken)
-    .digest('hex');
-    
-  // Définir l'expiration (7 jours, comme pour la vérification d'email)
-  this.password_reset_expires = Date.now() + 604800000; // 7 jours
-  
-  // Retourner le token non hashé
+  this.password_reset_token = crypto.createHash('sha256').update(resetToken).digest('hex');
+  this.password_reset_expires = Date.now() + 604800000; 
   return resetToken;
 };
 
 /**
  * Génère un JWT pour l'authentification
- * @returns {string} Le token JWT signé
  */
 userSchema.methods.generateAuthToken = function() {
   return jwt.sign(
@@ -101,9 +104,7 @@ userSchema.methods.generateAuthToken = function() {
 };
 
 /**
- * Compare un mot de passe candidat avec le mot de passe hashé de l'utilisateur
- * @param {string} candidatePassword - Le mot de passe à vérifier
- * @returns {boolean} True si le mot de passe correspond, false sinon
+ * Compare un mot de passe candidat avec le mot de passe hashé
  */
 userSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.mot_de_passe);
@@ -112,7 +113,6 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 // Middleware pre-save pour hasher le mot de passe
 userSchema.pre('save', async function(next) {
   if (!this.isModified('mot_de_passe')) return next();
-  
   try {
     const salt = await bcrypt.genSalt(10);
     this.mot_de_passe = await bcrypt.hash(this.mot_de_passe, salt);
@@ -122,7 +122,7 @@ userSchema.pre('save', async function(next) {
   }
 });
 
-// Ajouter des index pour optimiser les requêtes fréquentes
+// Index utiles
 userSchema.index({ email: 1 });
 userSchema.index({ statut_compte: 1 });
 userSchema.index({ derniere_connexion: -1 });
