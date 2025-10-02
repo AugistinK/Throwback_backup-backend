@@ -9,7 +9,7 @@ const multer = require('multer');
 ========================================================= */
 const uploadMemory = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024, files: 1 }, 
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 }, 
   fileFilter: (req, file, cb) => {
     if (file.mimetype && file.mimetype.startsWith('image/')) return cb(null, true);
     return cb(new Error('Seules les images sont autorisées'), false);
@@ -205,21 +205,21 @@ exports.uploadProfilePhoto = async (req, res) => {
 // Dans getProfilePhoto
 exports.getProfilePhoto = async (req, res) => {
   try {
-    console.log('📸 Demande de photo pour user:', req.params.id);
+    console.log(' Demande de photo pour user:', req.params.id);
     
     const user = await User.findById(req.params.id).select('photo_profil');
     
     if (!user) {
-      console.log('❌ Utilisateur non trouvé:', req.params.id);
+      console.log(' Utilisateur non trouvé:', req.params.id);
       return res.status(404).send('Utilisateur non trouvé');
     }
     
     if (!user.photo_profil || !user.photo_profil.data) {
-      console.log('❌ Pas de photo pour user:', req.params.id);
+      console.log(' Pas de photo pour user:', req.params.id);
       return res.status(404).send('Image non trouvée');
     }
 
-    console.log('✅ Photo trouvée, type:', user.photo_profil.contentType);
+    console.log(' Photo trouvée, type:', user.photo_profil.contentType);
     
     res.set('Content-Type', user.photo_profil.contentType || 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=604800, must-revalidate');
