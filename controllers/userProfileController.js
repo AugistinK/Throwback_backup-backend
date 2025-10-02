@@ -202,7 +202,6 @@ exports.uploadProfilePhoto = async (req, res) => {
 /* =========================================================
    GET /api/users/:id/photo -> Lire l'image depuis MongoDB
 ========================================================= */
-// Dans getProfilePhoto
 exports.getProfilePhoto = async (req, res) => {
   try {
     console.log(' Demande de photo pour user:', req.params.id);

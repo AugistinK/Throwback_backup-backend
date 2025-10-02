@@ -46,7 +46,7 @@ let streamSchedulerService = null;
 let playlistStatsService = null; 
 
 // ===== AMÉLIORATIONS DE SÉCURITÉ ET PERFORMANCE =====
-// Protection HTTP avec Helmet (AJOUT)
+// Protection HTTP avec Helmet 
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false, 
@@ -55,10 +55,10 @@ app.use(helmet({
 
 app.use(compression());
 
-// Rate limiting global (AJOUT)
+// Rate limiting global 
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // 1000 requêtes par IP sur la période
+  windowMs: 15 * 60 * 1000, 
+  max: 1000, 
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -69,10 +69,10 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-// Rate limiting spécifique pour l'authentification (AJOUT)
+// Rate limiting spécifique pour l'authentification 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 tentatives par IP sur la période
+  windowMs: 15 * 60 * 1000,
+  max: 10, 
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -736,8 +736,8 @@ app.get('/api/public/playlists/:id', (req, res, next) => {
 console.log(" Configuration des routes supplémentaires...");
 
 // Routes utilisateur
-const userProfileRoutes = require('./routes/api/userProfile');
-app.use('/api/users', userProfileRoutes);
+app.use('/api/users', require('./routes/api/userProfile'));
+
 
 // Routes administrateur
 const adminApiRoutes = require('./routes/api/admin');

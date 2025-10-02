@@ -22,7 +22,7 @@ router.put('/profile',
 router.post('/profile/photo',
   protect,
   userProfileController.checkContentType,
-  userProfileController.upload.single('photo'),     
+  userProfileController.upload.single('photo'),
   userProfileController.handleMulterError,
   logAction('UPLOAD_PHOTO_PROFIL', 'Upload photo profil'),
   userProfileController.uploadProfilePhoto
