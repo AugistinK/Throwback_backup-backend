@@ -122,7 +122,8 @@ const logActionSchema = new Schema(
         'MODERATION_COMMENTAIRE_ADMIN',
         'REPONSE_COMMENTAIRE_ADMIN',
         'MODERATION_MASSE_COMMENTAIRES',
-        'REJET_SIGNALEMENTS_COMMENTAIRE'
+        'REJET_SIGNALEMENTS_COMMENTAIRE',
+        'SUPPRESSION_COLLABORATEUR_PLAYLIST'
       ]
     },
     description_action: {

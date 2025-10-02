@@ -50,7 +50,7 @@ let playlistStatsService = null;
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false, 
-  crossOriginResourcePolicy: false // IMPORTANT: Permets l'accès aux ressources statiques entre origines
+  crossOriginResourcePolicy: false 
 }));
 
 app.use(compression());
