@@ -202,19 +202,31 @@ exports.uploadProfilePhoto = async (req, res) => {
 /* =========================================================
    GET /api/users/:id/photo -> Lire l'image depuis MongoDB
 ========================================================= */
+// Dans getProfilePhoto
 exports.getProfilePhoto = async (req, res) => {
   try {
+    console.log('📸 Demande de photo pour user:', req.params.id);
+    
     const user = await User.findById(req.params.id).select('photo_profil');
-    if (!user || !user.photo_profil || !user.photo_profil.data) {
+    
+    if (!user) {
+      console.log('❌ Utilisateur non trouvé:', req.params.id);
+      return res.status(404).send('Utilisateur non trouvé');
+    }
+    
+    if (!user.photo_profil || !user.photo_profil.data) {
+      console.log('❌ Pas de photo pour user:', req.params.id);
       return res.status(404).send('Image non trouvée');
     }
 
-    res.set('Content-Type', user.photo_profil.contentType || 'application/octet-stream');
-    res.set('Cache-Control', 'public, max-age=604800, must-revalidate'); // cache 7 jours (optionnel)
+    console.log('✅ Photo trouvée, type:', user.photo_profil.contentType);
+    
+    res.set('Content-Type', user.photo_profil.contentType || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=604800, must-revalidate');
     return res.send(user.photo_profil.data);
   } catch (error) {
-    console.error('getProfilePhoto error:', error);
-    return res.status(500).send('Erreur lors de la récupération de l’image');
+    console.error('❌ getProfilePhoto error:', error);
+    return res.status(500).send('Erreur lors de la récupération de l\'image');
   }
 };
 

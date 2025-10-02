@@ -85,12 +85,11 @@ router.put('/preferences',
   preferencesController.updatePreferences
 );
 
-// IMPORTANT: placer AVANT la route catch-all '/:id'
 router.get('/:id/photo',
   userProfileController.getProfilePhoto
 );
 
-// ——— route "catch-all" en dernier ———
+// Route catch-all (DOIT être en dernier)
 router.get('/:id',
   userProfileController.getUserProfile
 );
