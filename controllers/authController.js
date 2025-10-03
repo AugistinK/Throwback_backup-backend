@@ -82,7 +82,7 @@ const register = async (req, res) => {
     console.log(" Token saved successfully:", tokenDoc._id);
 
     // Build verification link to redirect to API
-    const verificationLink = `${process.env.BACKEND_URL || 'https://throwback-backup-backend.onrender.com'}/api/auth/verify/${user._id}/${verificationToken}`;
+    const verificationLink = `${process.env.BACKEND_URL || 'https://throwback-backend.onrender.com'}/api/auth/verify/${user._id}/${verificationToken}`;
    
     try {
       // Send verification email
@@ -322,7 +322,7 @@ const forgotPassword = async (req, res) => {
     await user.save();
 
     // ✅ Construire un lien DIRECT vers le front
-    const base = (process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com')
+    const base = (process.env.FRONTEND_URL || 'https://throwback-connect.com')
       .replace(/\/index\.html$/i, '')
       .replace(/\/$/, '');
     const resetLink = `${base}/reset-password?token=${encodeURIComponent(resetToken)}&message=${encodeURIComponent('Valid token, you can now set your new password')}`;
@@ -453,27 +453,27 @@ const verifyPasswordReset = async (req, res) => {
     });
     
     if (!user) {
-      console.log(" Invalid or expired token");
-      const errorUrl = `${process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com'}/forgot-password?error=invalid_token&message=Invalid or expired token`;
-      console.log(" Redirecting to:", errorUrl);
+      console.log("❌ Invalid or expired token");
+      const errorUrl = `${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/forgot-password?error=invalid_token&message=Invalid or expired token`;
+      console.log("🔄 Redirecting to:", errorUrl);
       return res.redirect(errorUrl);
     }
     
     console.log("✅ Valid token for user:", user.email);
     
     // Construire l'URL de redirection
-    const redirectUrl = `${process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com'}/reset-password?token=${token}&message=Valid token, you can now set your new password`;
+    const redirectUrl = `${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/reset-password?token=${token}&message=Valid token, you can now set your new password`;
     
     // Log de l'URL de redirection complète
-    console.log(" Redirecting to reset password page:");
-    console.log(" Full URL:", redirectUrl);
+    console.log("🔄 Redirecting to reset password page:");
+    console.log("📍 Full URL:", redirectUrl);
     
     // Valid token, redirect to reset form
     res.redirect(redirectUrl);
   } catch (error) {
-    console.error(" Password reset token verification error:", error);
-    const errorUrl = `${process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com'}/forgot-password?error=server_error&message=An error occurred`;
-    console.log(" Error redirect to:", errorUrl);
+    console.error("❌ Password reset token verification error:", error);
+    const errorUrl = `${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/forgot-password?error=server_error&message=An error occurred`;
+    console.log("🔄 Error redirect to:", errorUrl);
     res.redirect(errorUrl);
   }
 };
@@ -489,7 +489,7 @@ const verifyPasswordReset = async (req, res) => {
  */
 const resendVerification = async (req, res) => {
   try {
-    console.log(" Resend verification called");
+    console.log("📧 Resend verification called");
     const { email } = req.body;
 
     if (!email) {
@@ -535,26 +535,26 @@ const resendVerification = async (req, res) => {
     }).save();
 
     // Build verification link pointing to API
-    const verificationLink = `${process.env.BACKEND_URL || 'https://throwback-backup-backend.onrender.com'}/api/auth/verify/${user._id}/${verificationToken}`;
+    const verificationLink = `${process.env.BACKEND_URL || 'https://throwback-backend.onrender.com'}/api/auth/verify/${user._id}/${verificationToken}`;
     
     try {
       // Send email
       await sendEmail(user.email, "Verify your ThrowBack account", verificationLink);
-      console.log(" Verification email resent successfully");
+      console.log("📧 Verification email resent successfully");
       
       res.status(200).json({
         success: true,
         message: "Verification email sent successfully"
       });
     } catch (emailError) {
-      console.error(" Email sending error:", emailError);
+      console.error("📧 Email sending error:", emailError);
       res.status(500).json({
         success: false,
         message: "Error sending email"
       });
     }
   } catch (error) {
-    console.error(" Resend verification error:", error);
+    console.error("❌ Resend verification error:", error);
     res.status(500).json({
       success: false,
       message: "An error occurred"
