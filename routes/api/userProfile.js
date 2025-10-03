@@ -6,6 +6,7 @@ const { logAction } = require('../../middlewares/loggingMiddleware');
 const userProfileController = require('../../controllers/userProfileController');
 const preferencesController = require('../../controllers/preferencesController');
 
+
 // ——— routes "spécifiques" en premier ———
 router.get('/profile/me',
   protect,
@@ -14,42 +15,48 @@ router.get('/profile/me',
 
 router.put('/profile',
   protect,
-  logAction('MODIFICATION_PROFIL', 'Mise à jour du profil'),
+  logAction('MODIFICATION_PROFIL','Mise à jour du profil'),
   userProfileController.updateProfile
 );
 
-// Upload photo de profil -> stockée en MongoDB (buffer)
+
+
+
 router.post('/profile/photo',
   protect,
   userProfileController.checkContentType,
   userProfileController.upload.single('photo'),
   userProfileController.handleMulterError,
-  logAction('UPLOAD_PHOTO_PROFIL', 'Upload photo profil'),
+  logAction('UPLOAD_PHOTO_PROFIL','Upload photo profil'),
   userProfileController.uploadProfilePhoto
 );
 
-// (Temporaire) Cover désactivé tant que non implémenté côté controller
-// router.post('/profile/cover',
-//   protect,
-//   userProfileController.checkContentType,
-//   userProfileController.upload.single('photo'),
-//   userProfileController.handleMulterError,
-//   logAction('UPLOAD_PHOTO_COUVERTURE', 'Upload photo couverture'),
-//   userProfileController.uploadCoverPhoto
-// );
+
+
+
+
+
+
+router.post('/profile/cover',
+  protect,
+  userProfileController.checkContentType,
+  userProfileController.upload.single('photo'),
+  userProfileController.handleMulterError,
+  logAction('UPLOAD_PHOTO_COUVERTURE','Upload photo couverture'),
+  userProfileController.uploadCoverPhoto
+);
 
 router.delete('/profile/photo',
   protect,
-  logAction('SUPPRESSION_PHOTO_PROFIL', 'Suppression photo profil'),
+  logAction('SUPPRESSION_PHOTO_PROFIL','Suppression photo profil'),
   userProfileController.deleteProfilePhoto
 );
 
-// (Temporaire) Cover désactivé tant que non implémenté côté controller
-// router.delete('/profile/cover',
-//   protect,
-//   logAction('SUPPRESSION_PHOTO_COUVERTURE', 'Suppression photo couverture'),
-//   userProfileController.deleteCoverPhoto
-// );
+router.delete('/profile/cover',
+  protect,
+  logAction('SUPPRESSION_PHOTO_COUVERTURE','Suppression photo couverture'),
+  userProfileController.deleteCoverPhoto
+);
 
 router.get('/profile/privacy',
   protect,
@@ -58,19 +65,19 @@ router.get('/profile/privacy',
 
 router.put('/profile/privacy',
   protect,
-  logAction('MISE_A_JOUR_CONFIDENTIALITE', 'Mise à jour confidentialité'),
+  logAction('MISE_A_JOUR_CONFIDENTIALITE','Mise à jour confidentialité'),
   userProfileController.updatePrivacySettings
 );
 
 router.put('/profile/disable',
   protect,
-  logAction('DESACTIVATION_COMPTE', 'Désactivation compte'),
+  logAction('DESACTIVATION_COMPTE','Désactivation compte'),
   userProfileController.disableAccount
 );
 
 router.delete('/profile',
   protect,
-  logAction('SUPPRESSION_COMPTE', 'Suppression compte'),
+  logAction('SUPPRESSION_COMPTE','Suppression compte'),
   userProfileController.deleteAccount
 );
 
@@ -81,15 +88,12 @@ router.get('/preferences',
 
 router.put('/preferences',
   protect,
-  logAction('MISE_A_JOUR_PREFERENCES', 'Mise à jour des préférences'),
+  logAction('MISE_A_JOUR_PREFERENCES','Mise à jour des préférences'),
   preferencesController.updatePreferences
 );
+// … tes autres routes `/settings`, `/change-password`, etc …  
 
-router.get('/:id/photo',
-  userProfileController.getProfilePhoto
-);
-
-// Route catch-all (DOIT être en dernier)
+// ——— route "catch-all" en dernier ———
 router.get('/:id',
   userProfileController.getUserProfile
 );

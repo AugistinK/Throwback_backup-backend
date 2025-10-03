@@ -1,86 +1,59 @@
-// controllers/userProfileController.js
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
 const { updateProfileValidation } = require('../utils/authValidation');
+const fs = require('fs');
+const path = require('path');
 const multer = require('multer');
 
-/* =========================================================
-   Multer en mémoire (pour stocker en MongoDB)
-========================================================= */
-const uploadMemory = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 }, 
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype && file.mimetype.startsWith('image/')) return cb(null, true);
-    return cb(new Error('Seules les images sont autorisées'), false);
-  }
-});
-
-const handleMulterError = (err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ success: false, message: "Le fichier est trop volumineux. Taille maximale: 5MB" });
-    }
-    return res.status(400).json({ success: false, message: `Erreur lors de l'upload: ${err.message}` });
-  }
-  if (err) return res.status(400).json({ success: false, message: err.message || "Erreur d'upload" });
-  return next();
-};
-
-const checkContentType = (req, res, next) => {
-  const ct = req.headers['content-type'] || '';
-  if (!ct.includes('multipart/form-data')) {
-    return res.status(400).json({ success: false, message: "Le Content-Type doit être multipart/form-data" });
-  }
-  next();
-};
-
-/* =========================================================
-   Helpers
-========================================================= */
-
-/** Construit l'URL publique qui servira l'image depuis la BD */
-const buildPhotoUrl = (req, userId) => {
-  const base = (process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
-  return `${base}/api/users/${userId}/photo`;
-};
-
-/* =========================================================
-   GET /api/users/:id   -> Profil utilisateur
-========================================================= */
+/**
+ * @desc    Récupérer le profil d'un utilisateur
+ * @route   GET /api/users/:id
+ * @access  Private/Public selon les paramètres de confidentialité
+ */
 exports.getUserProfile = async (req, res) => {
   try {
     const userId = req.params.id;
-    if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
-      return res.status(400).json({ success: false, message: "Identifiant d'utilisateur invalide" });
-    }
-
+    console.log(' getUserProfile - userId:', userId);
+    
     const user = await User.findById(userId)
       .select('-mot_de_passe -reset_password_token -reset_password_expire -token_verification');
-
+    
     if (!user) {
-      return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+      console.log(' getUserProfile - Utilisateur non trouvé');
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
     }
-
-    // Respect confidentialité
+    
+    // Vérifier si le profil est privé et si l'utilisateur a le droit de le voir
     if (user.compte_prive && (!req.user || req.user.id !== user._id.toString())) {
-      return res.status(403).json({ success: false, message: "Ce profil est privé" });
+      return res.status(403).json({
+        success: false,
+        message: "Ce profil est privé"
+      });
     }
-
-    const out = user.toObject();
-
-    // Si une image existe en BD, on fournit une URL de lecture
-    out.photo_profil_url = (user.photo_profil && user.photo_profil.data)
-      ? buildPhotoUrl(req, user._id)
-      : null;
-
-    // (si tu ajoutes plus tard photo_couverture en BD, fais la même chose)
-    delete out.photo_profil; // on n'expose pas le binaire dans la réponse JSON
-
-    return res.status(200).json({ success: true, data: out });
+    
+    // Convertir les URLs relatives en URLs absolues pour les images
+    const backendUrl = process.env.BACKEND_URL || 'https://api.testdevinfinitiax.fr';
+    
+    if (user.photo_profil && !user.photo_profil.startsWith('http')) {
+      user.photo_profil = `${backendUrl}${user.photo_profil}`;
+    }
+    
+    if (user.photo_couverture && !user.photo_couverture.startsWith('http')) {
+      user.photo_couverture = `${backendUrl}${user.photo_couverture}`;
+    }
+    
+    console.log(' getUserProfile - Réponse:', { success: true, data: user });
+    
+    res.status(200).json({
+      success: true,
+      data: user
+    });
   } catch (error) {
-    console.error('getUserProfile error:', error);
-    return res.status(500).json({
+    console.error(" Erreur lors de la récupération du profil:", error);
+    res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la récupération du profil",
       error: error.message
@@ -88,53 +61,102 @@ exports.getUserProfile = async (req, res) => {
   }
 };
 
-/* =========================================================
-   PUT /api/users/profile   -> Mise à jour du profil (hors image)
-========================================================= */
+/**
+ * @desc    Mettre à jour le profil utilisateur
+ * @route   PUT /api/users/profile
+ * @access  Private
+ */
 exports.updateProfile = async (req, res) => {
+  console.log(' updateProfile called for user:', req.user && req.user.id);
+  console.log(' req.body:', req.body);
+  console.log(' Headers:', req.headers);
+  
   try {
+    // Validation des données - si elle échoue, on renvoie une réponse d'erreur
     const { error } = updateProfileValidation(req.body);
     if (error) {
-      return res.status(400).json({ success: false, message: error.details[0].message });
+      console.log(' Validation error:', error.details[0].message);
+      return res.status(400).json({
+        success: false,
+        message: error.details[0].message
+      });
     }
-
+    
+    // Champs autorisés à mettre à jour
     const updatableFields = [
       'nom', 'prenom', 'bio', 'date_naissance', 'genre',
       'pays', 'ville', 'adresse', 'code_postal', 'telephone',
       'profession', 'compte_prive', 'preferences_confidentialite',
-      'preferences_notification'
-      // NOTE: on n'accepte PAS photo_profil ici (gérée via endpoint dédié)
+      'preferences_notification', 'photo_profil'
     ];
-
+    
     const updateData = {};
     updatableFields.forEach(field => {
       if (req.body[field] !== undefined) {
         if (field === 'genre' && req.body[field]) {
-          const g = String(req.body[field]).toUpperCase();
-          if (['HOMME', 'FEMME', 'AUTRE'].includes(g)) {
-            updateData[field] = g === 'HOMME' ? 'Homme' : (g === 'FEMME' ? 'Femme' : 'Autre');
+          // Convertir le genre en format correct
+          const genre = req.body[field].toUpperCase();
+          if (['HOMME', 'FEMME', 'AUTRE'].includes(genre)) {
+            updateData[field] = genre === 'HOMME' ? 'Homme' : 
+                              genre === 'FEMME' ? 'Femme' : 'Autre';
           }
         } else {
           updateData[field] = req.body[field];
         }
       }
     });
-
+    
+    console.log(' Données à mettre à jour:', updateData);
+    
+    // Ajouter la date de modification
     updateData.modified_date = Date.now();
     updateData.modified_by = req.user.id;
-
-    const exists = await User.findById(req.user._id);
-    if (!exists) {
-      return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+    
+    // Vérifier l'utilisateur avant la mise à jour
+    const userBefore = await User.findById(req.user._id);
+    console.log(' Utilisateur avant mise à jour:', userBefore ? userBefore._id : 'Non trouvé');
+    
+    if (!userBefore) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
     }
-
-    const user = await User.findOneAndUpdate(
+    
+    // Utiliser findOneAndUpdate au lieu de findByIdAndUpdate
+    let user = await User.findOneAndUpdate(
       { _id: req.user._id },
       { $set: updateData },
-      { new: true, runValidators: true, context: 'query' }
-    ).select('-mot_de_passe -reset_password_token -reset_password_expire -token_verification');
-
-    // Log best-effort
+      { 
+        new: true, 
+        runValidators: true,
+        context: 'query'
+      }
+    )
+    .select('-mot_de_passe -reset_password_token -reset_password_expire -token_verification');
+    
+    console.log(' Utilisateur après mise à jour:', user ? user._id : 'Non trouvé');
+    
+    if (!user) {
+      console.log(' Utilisateur non trouvé');
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
+    
+    // Convertir les URLs relatives en URLs absolues pour les images
+    const backendUrl = process.env.BACKEND_URL || 'https://api.testdevinfinitiax.fr';
+    
+    if (user.photo_profil && !user.photo_profil.startsWith('http')) {
+      user.photo_profil = `${backendUrl}${user.photo_profil}`;
+    }
+    
+    if (user.photo_couverture && !user.photo_couverture.startsWith('http')) {
+      user.photo_couverture = `${backendUrl}${user.photo_couverture}`;
+    }
+    
+    // Journaliser l'action
     try {
       await LogAction.create({
         type_action: "PROFIL_MODIFIE",
@@ -144,20 +166,22 @@ exports.updateProfile = async (req, res) => {
         user_agent: req.headers['user-agent'],
         created_by: "SYSTEM"
       });
-    } catch (e) {
-      console.warn('LogAction failed:', e.message);
+    } catch (logError) {
+      console.error(" Erreur lors de la journalisation:", logError);
+      // Continue despite log error
     }
-
-    const out = user.toObject();
-    out.photo_profil_url = (user.photo_profil && user.photo_profil.data)
-      ? buildPhotoUrl(req, user._id)
-      : null;
-    delete out.photo_profil;
-
-    return res.status(200).json({ success: true, message: "Profil mis à jour avec succès", data: out });
+    
+    console.log(' Profil mis à jour avec succès:', user._id);
+    
+    res.status(200).json({
+      success: true,
+      message: "Profil mis à jour avec succès",
+      data: user
+    });
   } catch (error) {
-    console.error('updateProfile error:', error);
-    return res.status(500).json({
+    console.error(" Erreur lors de la mise à jour du profil:", error);
+    console.error(" Stack trace:", error.stack);
+    res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la mise à jour du profil",
       error: error.message
@@ -165,33 +189,154 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-/* =========================================================
-   POST /api/users/profile/photo  -> Upload avatar (vers MongoDB)
-========================================================= */
+// Configuration de Multer pour l'upload d'images
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../uploads/profiles');
+    console.log(' Upload directory:', uploadDir);
+    
+    // Créer le répertoire s'il n'existe pas
+    if (!fs.existsSync(uploadDir)) {
+      console.log(' Creating upload directory');
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    console.log(' Original filename:', file.originalname);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const fileExt = path.extname(file.originalname);
+    const filename = `user-${req.user.id}-${uniqueSuffix}${fileExt}`;
+    console.log(' Generated filename:', filename);
+    cb(null, filename);
+  }
+});
+
+// Filtrer les types de fichiers
+const fileFilter = (req, file, cb) => {
+  console.log(' File type check:', file.mimetype);
+  // N'accepter que les images
+  if (file.mimetype.startsWith('image/')) {
+    console.log(' File type accepted');
+    cb(null, true);
+  } else {
+    console.log(' Invalid file type');
+    cb(new Error('Seules les images sont autorisées'), false);
+  }
+};
+
+// Configuration de Multer
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { 
+    fileSize: 5 * 1024 * 1024,
+    files: 1 
+  }
+});
+
+// Middleware de gestion d'erreur pour Multer
+const handleMulterError = (err, req, res, next) => {
+  console.error(' Multer error:', err);
+  console.log(' Request headers:', req.headers);
+  console.log(' Request body:', req.body);
+  console.log(' Request file:', req.file);
+
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: "Le fichier est trop volumineux. Taille maximale: 5MB"
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: `Erreur lors de l'upload: ${err.message}`
+    });
+  }
+
+  // Gérer l'erreur "Unexpected end of form"
+  if (err.message === 'Unexpected end of form') {
+    return res.status(400).json({
+      success: false,
+      message: "Le formulaire est incomplet. Assurez-vous d'envoyer le fichier avec le champ 'photo' en utilisant multipart/form-data"
+    });
+  }
+
+  next(err);
+};
+
+// Middleware pour vérifier le Content-Type
+const checkContentType = (req, res, next) => {
+  console.log(' Checking Content-Type:', req.headers['content-type']);
+  if (!req.headers['content-type'] || !req.headers['content-type'].includes('multipart/form-data')) {
+    return res.status(400).json({
+      success: false,
+      message: "Le Content-Type doit être multipart/form-data"
+    });
+  }
+  next();
+};
+
+// Exporter les middlewares et la configuration
+exports.upload = upload;
+exports.handleMulterError = handleMulterError;
+exports.checkContentType = checkContentType;
+
+/**
+ * @desc    Upload photo de profil
+ * @route   POST /api/users/profile/photo
+ * @access  Private
+ */
 exports.uploadProfilePhoto = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ success: false, message: "Aucun fichier n'a été uploadé" });
+    console.log(' uploadProfilePhoto - Demande reçue:', req.file);
+    
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Aucun fichier n'a été uploadé"
+      });
+    }
 
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+    const backendUrl = process.env.BACKEND_URL || 'https://api.testdevinfinitiax.fr';
+    const relativePath = `/uploads/profiles/${req.file.filename}`;
+    const fullPhotoUrl = `${backendUrl}${relativePath}`;
+    
+    console.log(' Chemin relatif:', relativePath);
+    console.log(' URL complète:', fullPhotoUrl);
 
-    user.photo_profil = {
-      data: req.file.buffer,          // binaire
-      contentType: req.file.mimetype  // ex: image/jpeg
-    };
-    user.modified_date = Date.now();
-    user.modified_by = req.user.id;
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { 
+        photo_profil: relativePath, // Stocker le chemin relatif dans la base de données
+        modified_date: Date.now(),
+        modified_by: req.user.id
+      },
+      { new: true }
+    ).select('-mot_de_passe -reset_password_token -reset_password_expire -token_verification');
 
-    await user.save();
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
+    
+    // Remplacer par l'URL complète dans la réponse
+    user.photo_profil = fullPhotoUrl;
 
-    const out = user.toObject();
-    out.photo_profil_url = buildPhotoUrl(req, user._id);
-    delete out.photo_profil;
+    console.log(' Photo de profil mise à jour:', user.photo_profil);
 
-    return res.status(200).json({ success: true, message: "Photo de profil enregistrée en BD", data: out });
+    res.status(200).json({
+      success: true,
+      message: "Photo de profil mise à jour avec succès",
+      data: user
+    });
   } catch (error) {
-    console.error('uploadProfilePhoto error:', error);
-    return res.status(500).json({
+    console.error(" Erreur lors de l'upload de la photo de profil:", error);
+    res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de l'upload de la photo de profil",
       error: error.message
@@ -199,65 +344,162 @@ exports.uploadProfilePhoto = async (req, res) => {
   }
 };
 
-/* =========================================================
-   GET /api/users/:id/photo -> Lire l'image depuis MongoDB
-========================================================= */
-exports.getProfilePhoto = async (req, res) => {
+/**
+ * @desc    Upload photo de couverture
+ * @route   POST /api/users/profile/cover
+ * @access  Private
+ */
+exports.uploadCoverPhoto = async (req, res) => {
   try {
-    console.log(' Demande de photo pour user:', req.params.id);
+    console.log(' uploadCoverPhoto - Demande reçue:', req.file);
     
-    const user = await User.findById(req.params.id).select('photo_profil');
-    
-    if (!user) {
-      console.log(' Utilisateur non trouvé:', req.params.id);
-      return res.status(404).send('Utilisateur non trouvé');
-    }
-    
-    if (!user.photo_profil || !user.photo_profil.data) {
-      console.log(' Pas de photo pour user:', req.params.id);
-      return res.status(404).send('Image non trouvée');
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Aucun fichier n'a été uploadé"
+      });
     }
 
-    console.log(' Photo trouvée, type:', user.photo_profil.contentType);
+    const backendUrl = process.env.BACKEND_URL || 'https://api.testdevinfinitiax.fr';
+    const relativePath = `/uploads/profiles/${req.file.filename}`;
+    const fullPhotoUrl = `${backendUrl}${relativePath}`;
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { 
+        photo_couverture: relativePath, // Stocker le chemin relatif dans la base de données
+        modified_date: Date.now(),
+        modified_by: req.user.id
+      },
+      { new: true }
+    ).select('-mot_de_passe -reset_password_token -reset_password_expire -token_verification');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
     
-    res.set('Content-Type', user.photo_profil.contentType || 'image/jpeg');
-    res.set('Cache-Control', 'public, max-age=604800, must-revalidate');
-    return res.send(user.photo_profil.data);
+    // Remplacer par l'URL complète dans la réponse
+    user.photo_couverture = fullPhotoUrl;
+
+    res.status(200).json({
+      success: true,
+      message: "Photo de couverture mise à jour avec succès",
+      data: user
+    });
   } catch (error) {
-    console.error('❌ getProfilePhoto error:', error);
-    return res.status(500).send('Erreur lors de la récupération de l\'image');
+    console.error(" Erreur lors de l'upload de la photo de couverture:", error);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de l'upload de la photo de couverture",
+      error: error.message
+    });
   }
 };
 
-/* =========================================================
-   DELETE /api/users/profile/photo -> Supprimer avatar
-========================================================= */
+
+/**
+ * @desc    Supprimer la photo de profil
+ * @route   DELETE /api/users/profile/photo
+ * @access  Private
+ */
 exports.deleteProfilePhoto = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
 
-    user.photo_profil = undefined; // rien à supprimer sur le disque
+    // Supprimer l'ancienne photo si elle existe
+    if (user.photo_profil) {
+      const oldPhotoPath = path.join(__dirname, '..', user.photo_profil);
+      if (fs.existsSync(oldPhotoPath)) {
+        fs.unlinkSync(oldPhotoPath);
+      }
+    }
+
+    user.photo_profil = undefined;
     user.modified_date = Date.now();
     user.modified_by = req.user.id;
     await user.save();
 
-    return res.status(200).json({ success: true, message: "Photo de profil supprimée avec succès" });
+    res.status(200).json({
+      success: true,
+      message: "Photo de profil supprimée avec succès"
+    });
   } catch (error) {
-    console.error('deleteProfilePhoto error:', error);
-    return res.status(500).json({ success: false, message: "Erreur lors de la suppression de la photo de profil" });
+    console.error("Erreur lors de la suppression de la photo de profil:", error);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de la suppression de la photo de profil"
+    });
   }
 };
 
-/* =========================================================
-   Settings de confidentialité (inchangé)
-========================================================= */
+/**
+ * @desc    Supprimer la photo de couverture
+ * @route   DELETE /api/users/profile/cover
+ * @access  Private
+ */
+exports.deleteCoverPhoto = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
+
+    // Supprimer l'ancienne photo si elle existe
+    if (user.photo_couverture) {
+      const oldPhotoPath = path.join(__dirname, '..', user.photo_couverture);
+      if (fs.existsSync(oldPhotoPath)) {
+        fs.unlinkSync(oldPhotoPath);
+      }
+    }
+
+    user.photo_couverture = undefined;
+    user.modified_date = Date.now();
+    user.modified_by = req.user.id;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Photo de couverture supprimée avec succès"
+    });
+  } catch (error) {
+    console.error("Erreur lors de la suppression de la photo de couverture:", error);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de la suppression de la photo de couverture"
+    });
+  }
+};
+
+/**
+ * @desc    Récupérer les paramètres de confidentialité
+ * @route   GET /api/users/profile/privacy
+ * @access  Private
+ */
 exports.getPrivacySettings = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('compte_prive preferences_confidentialite');
-    if (!user) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+    const user = await User.findById(req.user.id)
+      .select('compte_prive preferences_confidentialite');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       data: {
         compte_prive: user.compte_prive,
@@ -265,65 +507,149 @@ exports.getPrivacySettings = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('getPrivacySettings error:', error);
-    return res.status(500).json({ success: false, message: "Erreur lors de la récupération des paramètres de confidentialité" });
+    console.error("Erreur lors de la récupération des paramètres de confidentialité:", error);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de la récupération des paramètres de confidentialité"
+    });
   }
 };
 
+/**
+ * @desc    Mettre à jour les paramètres de confidentialité
+ * @route   PUT /api/users/profile/privacy
+ * @access  Private
+ */
 exports.updatePrivacySettings = async (req, res) => {
   try {
     const { compte_prive, preferences_confidentialite } = req.body;
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      { compte_prive, preferences_confidentialite, modified_date: Date.now(), modified_by: req.user.id },
+      {
+        compte_prive,
+        preferences_confidentialite,
+        modified_date: Date.now(),
+        modified_by: req.user.id
+      },
       { new: true }
     ).select('compte_prive preferences_confidentialite');
 
-    if (!user) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
 
-    return res.status(200).json({ success: true, message: "Paramètres de confidentialité mis à jour", data: user });
+    res.status(200).json({
+      success: true,
+      message: "Paramètres de confidentialité mis à jour avec succès",
+      data: user
+    });
   } catch (error) {
-    console.error('updatePrivacySettings error:', error);
-    return res.status(500).json({ success: false, message: "Erreur lors de la mise à jour des paramètres de confidentialité" });
+    console.error("Erreur lors de la mise à jour des paramètres de confidentialité:", error);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de la mise à jour des paramètres de confidentialité"
+    });
   }
 };
 
-/* =========================================================
-   Désactivation / suppression de compte (inchangé sauf fichiers)
-========================================================= */
+/**
+ * @desc    Désactiver le compte
+ * @route   PUT /api/users/profile/disable
+ * @access  Private
+ */
 exports.disableAccount = async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      { compte_active: false, date_desactivation: Date.now(), modified_date: Date.now(), modified_by: req.user.id },
+      {
+        compte_active: false,
+        date_desactivation: Date.now(),
+        modified_date: Date.now(),
+        modified_by: req.user.id
+      },
       { new: true }
     );
-    if (!user) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
-    return res.status(200).json({ success: true, message: "Compte désactivé avec succès" });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Compte désactivé avec succès"
+    });
   } catch (error) {
-    console.error('disableAccount error:', error);
-    return res.status(500).json({ success: false, message: "Erreur lors de la désactivation du compte" });
+    console.error("Erreur lors de la désactivation du compte:", error);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de la désactivation du compte"
+    });
   }
 };
 
+/**
+ * @desc    Supprimer le compte
+ * @route   DELETE /api/users/profile
+ * @access  Private
+ */
 exports.deleteAccount = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé"
+      });
+    }
 
-    // Rien à supprimer sur le système de fichiers, on efface juste le doc
+    // Supprimer les photos si elles existent
+    if (user.photo_profil) {
+      const photoPath = path.join(__dirname, '..', user.photo_profil);
+      if (fs.existsSync(photoPath)) {
+        fs.unlinkSync(photoPath);
+      }
+    }
+    if (user.photo_couverture) {
+      const coverPath = path.join(__dirname, '..', user.photo_couverture);
+      if (fs.existsSync(coverPath)) {
+        fs.unlinkSync(coverPath);
+      }
+    }
+
+    // Supprimer l'utilisateur
     await User.findByIdAndDelete(req.user.id);
-    return res.status(200).json({ success: true, message: "Compte supprimé avec succès" });
+
+    res.status(200).json({
+      success: true,
+      message: "Compte supprimé avec succès"
+    });
   } catch (error) {
-    console.error('deleteAccount error:', error);
-    return res.status(500).json({ success: false, message: "Erreur lors de la suppression du compte" });
+    console.error("Erreur lors de la suppression du compte:", error);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur est survenue lors de la suppression du compte"
+    });
   }
 };
 
-/* =========================================================
-   Exports middlewares (pour routes)
-========================================================= */
-exports.upload = uploadMemory;
-exports.handleMulterError = handleMulterError;
-exports.checkContentType = checkContentType;
+// Exporter toutes les fonctions du contrôleur
+module.exports = {
+  ...exports,
+  getUserProfile: exports.getUserProfile,
+  updateProfile: exports.updateProfile,
+  uploadProfilePhoto: exports.uploadProfilePhoto,
+  uploadCoverPhoto: exports.uploadCoverPhoto,
+  deleteProfilePhoto: exports.deleteProfilePhoto,
+  deleteCoverPhoto: exports.deleteCoverPhoto,
+  getPrivacySettings: exports.getPrivacySettings,
+  updatePrivacySettings: exports.updatePrivacySettings,
+  disableAccount: exports.disableAccount,
+  deleteAccount: exports.deleteAccount
+};
