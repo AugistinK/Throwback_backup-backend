@@ -6,10 +6,10 @@ const postSchema = new Schema({
   contenu: { 
     type: String, 
     required: true,
-    maxLength: 1000
+    maxLength: 5000 
   },
   media: {
-    type: String, // Chemin vers le média uploadé
+    type: String,
     default: null
   },
   type_media: {
