@@ -124,7 +124,12 @@ const logActionSchema = new Schema(
         'MODERATION_MASSE_COMMENTAIRES',
         'REJET_SIGNALEMENTS_COMMENTAIRE',
         'SUPPRESSION_COLLABORATEUR_PLAYLIST',
-        'AJOUT_COLLABORATEUR_PLAYLIST'
+        'AJOUT_COLLABORATEUR_PLAYLIST',
+        'FRIEND_GROUP_CREATED',
+        'FRIEND_GROUP_UPDATED',
+        'FRIEND_GROUP_DELETED',
+        'FRIEND_REMOVED',
+        
       ]
     },
     description_action: {

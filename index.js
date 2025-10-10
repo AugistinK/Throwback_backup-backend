@@ -37,6 +37,11 @@ require('./models/LiveStream');
 require('./models/liveChatMessage');
 require('./models/PlaylistAnalytics');
 require('./models/Post'); 
+require('./models/FriendGroup');
+require('./models/Friendship');
+require('./models/Message');
+require('./models/Bookmark');
+require('./models/Memory');
 
 const app = express();
 
@@ -721,7 +726,7 @@ app.get('/api/public/playlists', (req, res, next) => {
 });
 
 app.get('/api/public/playlists/:id', (req, res, next) => {
-  console.log('🎵 Route publique: GET /api/public/playlists/:id');
+  console.log(' Route publique: GET /api/public/playlists/:id');
   if (playlistController && playlistController.getPublicPlaylistById) {
     playlistController.getPublicPlaylistById(req, res, next);
   } else {
@@ -731,6 +736,14 @@ app.get('/api/public/playlists/:id', (req, res, next) => {
     });
   }
 });
+
+// Les routes pour les amis et les messages
+const friendsRoutes = require('./routes/api/friends');
+const messagesRoutes = require('./routes/api/messages');
+
+
+app.use('/api/friends', friendsRoutes);
+app.use('/api/messages', messagesRoutes);
 
 // ===== ROUTES SUPPLÉMENTAIRES =====
 console.log(" Configuration des routes supplémentaires...");
@@ -744,7 +757,7 @@ const adminApiRoutes = require('./routes/api/admin');
 app.use('/api/admin', adminApiRoutes);
 
 // Routes d'administration des commentaires
-// Routes d'administration des commentaires
+
 try {
   const adminCommentsRoutes = require('./routes/api/adminCommentsRoutes');
   app.use('/api/admin/comments', adminCommentsRoutes);
@@ -820,7 +833,7 @@ try {
   console.log(" Route de fallback video-info configurée pour le développement");
 }
 
-// ===== CONFIGURATION DE LA DOCUMENTATION SWAGGER/OPENAPI (AJOUT) =====
+
 try {
   const swaggerUi = require('swagger-ui-express');
   const swaggerJsDoc = require('swagger-jsdoc');

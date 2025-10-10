@@ -6,7 +6,7 @@ const postSchema = new Schema({
   contenu: { 
     type: String, 
     required: true,
-    maxLength: 5000 
+    maxLength: 5000
   },
   media: {
     type: String,

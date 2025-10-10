@@ -5,7 +5,7 @@ const { protect } = require('../../middlewares/authMiddleware');
 const { logAction } = require('../../middlewares/loggingMiddleware');
 const userProfileController = require('../../controllers/userProfileController');
 const preferencesController = require('../../controllers/preferencesController');
-
+const friendsController = require('../../controllers/friendsController'); 
 
 // ——— routes "spécifiques" en premier ———
 router.get('/profile/me',
@@ -19,9 +19,6 @@ router.put('/profile',
   userProfileController.updateProfile
 );
 
-
-
-
 router.post('/profile/photo',
   protect,
   userProfileController.checkContentType,
@@ -30,12 +27,6 @@ router.post('/profile/photo',
   logAction('UPLOAD_PHOTO_PROFIL','Upload photo profil'),
   userProfileController.uploadProfilePhoto
 );
-
-
-
-
-
-
 
 router.post('/profile/cover',
   protect,
@@ -91,7 +82,13 @@ router.put('/preferences',
   logAction('MISE_A_JOUR_PREFERENCES','Mise à jour des préférences'),
   preferencesController.updatePreferences
 );
-// … tes autres routes `/settings`, `/change-password`, etc …  
+
+// ✅ NOUVELLE ROUTE - Recherche d'utilisateurs
+// IMPORTANT : Cette route doit être AVANT la route /:id
+router.get('/search',
+  protect,
+  friendsController.searchUsers
+);
 
 // ——— route "catch-all" en dernier ———
 router.get('/:id',
