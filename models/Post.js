@@ -5,8 +5,8 @@ const { Schema, model } = mongoose;
 const postSchema = new Schema({
   contenu: { 
     type: String, 
-    required: true,
-    maxLength: 5000
+    required: true
+    // maxLength retiré pour permettre n'importe quelle longueur
   },
   media: {
     type: String,
@@ -22,6 +22,7 @@ const postSchema = new Schema({
     ref: 'User', 
     required: true 
   },
+  // Reste du modèle inchangé...
   mentions: [{ 
     type: Schema.Types.ObjectId, 
     ref: 'User' 
@@ -62,7 +63,7 @@ const postSchema = new Schema({
   toObject: { virtuals: true }
 });
 
-// Virtuels
+// Virtuels inchangés
 postSchema.virtual('nombre_likes').get(function() {
   return this.likes.length;
 });
@@ -71,7 +72,7 @@ postSchema.virtual('nombre_commentaires').get(function() {
   return this.commentaires.length;
 });
 
-// Indices pour les recherches fréquentes
+// Indices inchangés
 postSchema.index({ auteur: 1, createdAt: -1 });
 postSchema.index({ hashtags: 1 });
 postSchema.index({ visibilite: 1 });
