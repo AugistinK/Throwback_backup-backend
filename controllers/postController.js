@@ -20,6 +20,10 @@ exports.getPosts = async (req, res) => {
     const hashtag = req.query.hashtag;
     const userId = req.query.userId;
     const sort = req.query.sort || 'recent'; 
+    
+    //  LOG pour diagnostiquer
+    console.log("📝 getPosts called with params:", { page, limit, hashtag, userId, sort });
+    console.log("👤 User connected:", req.user ? req.user.id : "Not authenticated");
 
     // Construction du filtre
     const filter = {};
@@ -64,18 +68,27 @@ exports.getPosts = async (req, res) => {
     // Comptage total pour pagination
     const total = await Post.countDocuments(filter);
     
-    // Récupération des posts avec population des données auteur
+    //  CORRECTION CRITIQUE : Ajouter _id dans le populate
     const posts = await Post.find(filter)
       .sort(sortOption)
       .skip(skip)
       .limit(limit)
-      .populate('auteur', 'nom prenom photo_profil')
+      .populate('auteur', '_id nom prenom photo_profil email') //  Ajouter _id et email
       .populate({
         path: 'commentaires',
         options: { limit: 3, sort: { createdAt: -1 } },
-        populate: { path: 'auteur', select: 'nom prenom photo_profil' }
+        populate: { path: 'auteur', select: '_id nom prenom photo_profil' } //  Ajouter _id
       })
       .lean();
+    
+    //  LOG pour vérifier la structure
+    console.log("📦 Posts fetched:", posts.length);
+    if (posts.length > 0) {
+      console.log("📋 First post structure:", {
+        _id: posts[0]._id,
+        auteur: posts[0].auteur
+      });
+    }
     
     // Calcul des pages totales
     const totalPages = Math.ceil(total / limit);
@@ -91,7 +104,7 @@ exports.getPosts = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération des posts:", error);
+    console.error(" Erreur lors de la récupération des posts:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la récupération des posts"
@@ -116,12 +129,12 @@ exports.getPostById = async (req, res) => {
       });
     }
     
-    // Récupérer le post avec ses commentaires
+    //  CORRECTION : Ajouter _id dans le populate
     const post = await Post.findById(postId)
-      .populate('auteur', 'nom prenom photo_profil')
+      .populate('auteur', '_id nom prenom photo_profil email')
       .populate({
         path: 'commentaires',
-        populate: { path: 'auteur', select: 'nom prenom photo_profil' }
+        populate: { path: 'auteur', select: '_id nom prenom photo_profil' }
       });
     
     // Vérifier si le post existe
@@ -146,7 +159,7 @@ exports.getPostById = async (req, res) => {
       data: post
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération du post:", error);
+    console.error(" Erreur lors de la récupération du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la récupération du post"
@@ -162,6 +175,8 @@ exports.getPostById = async (req, res) => {
 exports.createPost = async (req, res) => {
   try {
     const { contenu, visibilite = 'PUBLIC', hashtags = [] } = req.body;
+    
+    console.log("✍️ Creating post for user:", req.user.id);
     
     // Validation des données
     if (!contenu || contenu.trim() === '') {
@@ -199,9 +214,11 @@ exports.createPost = async (req, res) => {
     
     await newPost.save();
     
-    // Récupérer le post créé avec les données de l'auteur
+    //  CORRECTION : Ajouter _id dans le populate
     const post = await Post.findById(newPost._id)
-      .populate('auteur', 'nom prenom photo_profil');
+      .populate('auteur', '_id nom prenom photo_profil email');
+    
+    console.log(" Post created:", post._id);
     
     res.status(201).json({
       success: true,
@@ -209,7 +226,7 @@ exports.createPost = async (req, res) => {
       data: post
     });
   } catch (error) {
-    console.error("Erreur lors de la création du post:", error);
+    console.error(" Erreur lors de la création du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la création du post"
@@ -226,6 +243,8 @@ exports.updatePost = async (req, res) => {
   try {
     const postId = req.params.id;
     const { contenu, visibilite, hashtags } = req.body;
+    
+    console.log("✏️ Updating post:", postId, "by user:", req.user.id);
     
     // Vérifier si l'ID est valide
     if (!mongoose.Types.ObjectId.isValid(postId)) {
@@ -246,7 +265,9 @@ exports.updatePost = async (req, res) => {
       });
     }
     
-    // Vérifier si l'utilisateur est l'auteur du post
+    //  Vérifier si l'utilisateur est l'auteur du post
+    console.log("🔍 Comparing:", post.auteur.toString(), "vs", req.user.id);
+    
     if (post.auteur.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
@@ -268,13 +289,15 @@ exports.updatePost = async (req, res) => {
     
     await post.save();
     
+    console.log(" Post updated successfully");
+    
     res.status(200).json({
       success: true,
       message: "Post mis à jour avec succès",
       data: post
     });
   } catch (error) {
-    console.error("Erreur lors de la mise à jour du post:", error);
+    console.error(" Erreur lors de la mise à jour du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la mise à jour du post"
@@ -290,6 +313,8 @@ exports.updatePost = async (req, res) => {
 exports.deletePost = async (req, res) => {
   try {
     const postId = req.params.id;
+    
+    console.log(" Delete post request:", postId, "by user:", req.user.id);
     
     // Vérifier si l'ID est valide
     if (!mongoose.Types.ObjectId.isValid(postId)) {
@@ -310,8 +335,26 @@ exports.deletePost = async (req, res) => {
       });
     }
     
-    // Vérifier si l'utilisateur est l'auteur du post ou un admin
-    if (post.auteur.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+    //  Vérifier les permissions - support des rôles depuis le tableau roles
+    const userRoles = req.user.roles || [];
+    const userRole = req.user.role;
+    
+    const isAdmin = userRole === 'admin' || 
+                    userRole === 'superadmin' ||
+                    userRoles.some(r => r.libelle_role === 'admin' || r.libelle_role === 'superadmin');
+    
+    const isAuthor = post.auteur.toString() === req.user.id;
+    
+    console.log("🔍 Permission check:", {
+      postAuthor: post.auteur.toString(),
+      currentUser: req.user.id,
+      isAuthor,
+      isAdmin,
+      userRole,
+      userRoles
+    });
+    
+    if (!isAuthor && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: "Vous n'êtes pas autorisé à supprimer ce post"
@@ -332,12 +375,14 @@ exports.deletePost = async (req, res) => {
     // Supprimer le post
     await Post.deleteOne({ _id: postId });
     
+    console.log(" Post deleted successfully");
+    
     res.status(200).json({
       success: true,
       message: "Post supprimé avec succès"
     });
   } catch (error) {
-    console.error("Erreur lors de la suppression du post:", error);
+    console.error(" Erreur lors de la suppression du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la suppression du post"
@@ -345,16 +390,11 @@ exports.deletePost = async (req, res) => {
   }
 };
 
-/**
- * @desc    Liker/Unliker un post
- * @route   POST /api/posts/:id/like
- * @access  Private
- */
+//  Reste des fonctions inchangées (likePost, sharePost, reportPost)
 exports.likePost = async (req, res) => {
   try {
     const postId = req.params.id;
     
-    // Vérifier si l'ID est valide
     if (!mongoose.Types.ObjectId.isValid(postId)) {
       return res.status(400).json({
         success: false,
@@ -362,10 +402,8 @@ exports.likePost = async (req, res) => {
       });
     }
     
-    // Récupérer le post
     const post = await Post.findById(postId);
     
-    // Vérifier si le post existe
     if (!post) {
       return res.status(404).json({
         success: false,
@@ -373,16 +411,13 @@ exports.likePost = async (req, res) => {
       });
     }
     
-    // Vérifier si l'utilisateur a déjà liké le post
     const index = post.likes.indexOf(req.user.id);
     let message;
     
     if (index === -1) {
-      // Ajouter le like
       post.likes.push(req.user.id);
       message = "Post liké avec succès";
     } else {
-      // Retirer le like
       post.likes.splice(index, 1);
       message = "Like retiré avec succès";
     }
@@ -392,11 +427,11 @@ exports.likePost = async (req, res) => {
     res.status(200).json({
       success: true,
       message,
-      liked: index === -1, // true si le post a été liké, false si unliké
+      liked: index === -1,
       likeCount: post.likes.length
     });
   } catch (error) {
-    console.error("Erreur lors du like/unlike du post:", error);
+    console.error(" Erreur lors du like/unlike du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors du like/unlike du post"
@@ -404,16 +439,10 @@ exports.likePost = async (req, res) => {
   }
 };
 
-/**
- * @desc    Partager un post
- * @route   POST /api/posts/:id/share
- * @access  Private
- */
 exports.sharePost = async (req, res) => {
   try {
     const postId = req.params.id;
     
-    // Vérifier si l'ID est valide
     if (!mongoose.Types.ObjectId.isValid(postId)) {
       return res.status(400).json({
         success: false,
@@ -421,10 +450,8 @@ exports.sharePost = async (req, res) => {
       });
     }
     
-    // Récupérer le post
     const post = await Post.findById(postId);
     
-    // Vérifier si le post existe
     if (!post) {
       return res.status(404).json({
         success: false,
@@ -432,7 +459,6 @@ exports.sharePost = async (req, res) => {
       });
     }
     
-    // Incrémenter le compteur de partages
     post.partages += 1;
     await post.save();
     
@@ -442,7 +468,7 @@ exports.sharePost = async (req, res) => {
       shareCount: post.partages
     });
   } catch (error) {
-    console.error("Erreur lors du partage du post:", error);
+    console.error(" Erreur lors du partage du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors du partage du post"
@@ -450,17 +476,11 @@ exports.sharePost = async (req, res) => {
   }
 };
 
-/**
- * @desc    Signaler un post
- * @route   POST /api/posts/:id/report
- * @access  Private
- */
 exports.reportPost = async (req, res) => {
   try {
     const postId = req.params.id;
     const { raison } = req.body;
     
-    // Vérifier si l'ID est valide
     if (!mongoose.Types.ObjectId.isValid(postId)) {
       return res.status(400).json({
         success: false,
@@ -468,7 +488,6 @@ exports.reportPost = async (req, res) => {
       });
     }
     
-    // Validation des données
     if (!raison || raison.trim() === '') {
       return res.status(400).json({
         success: false,
@@ -476,10 +495,8 @@ exports.reportPost = async (req, res) => {
       });
     }
     
-    // Récupérer le post
     const post = await Post.findById(postId);
     
-    // Vérifier si le post existe
     if (!post) {
       return res.status(404).json({
         success: false,
@@ -487,7 +504,6 @@ exports.reportPost = async (req, res) => {
       });
     }
     
-    // Vérifier si l'utilisateur a déjà signalé le post
     const dejaSignale = post.signalements.some(s => s.utilisateur.toString() === req.user.id);
     
     if (dejaSignale) {
@@ -497,14 +513,12 @@ exports.reportPost = async (req, res) => {
       });
     }
     
-    // Ajouter le signalement
     post.signalements.push({
       utilisateur: req.user.id,
       raison,
       date: Date.now()
     });
     
-    // Si le nombre de signalements dépasse un seuil, marquer le post pour modération
     if (post.signalements.length >= 3) {
       post.modere = true;
     }
@@ -516,7 +530,7 @@ exports.reportPost = async (req, res) => {
       message: "Post signalé avec succès"
     });
   } catch (error) {
-    console.error("Erreur lors du signalement du post:", error);
+    console.error(" Erreur lors du signalement du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors du signalement du post"

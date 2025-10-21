@@ -22,7 +22,7 @@ const postSchema = new Schema({
     ref: 'User', 
     required: true 
   },
-  // Reste du modèle inchangé...
+  
   mentions: [{ 
     type: Schema.Types.ObjectId, 
     ref: 'User' 
@@ -76,5 +76,4 @@ postSchema.virtual('nombre_commentaires').get(function() {
 postSchema.index({ auteur: 1, createdAt: -1 });
 postSchema.index({ hashtags: 1 });
 postSchema.index({ visibilite: 1 });
-
 module.exports = model('Post', postSchema);
