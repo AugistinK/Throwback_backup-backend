@@ -242,8 +242,13 @@ const login = async (req, res) => {
  */
 const getMe = async (req, res) => {
   try {
-    // Plus besoin de populate les roles
-    const user = await User.findById(req.user.id);
+    console.log(" getMe called for user:", req.user?.id);
+    
+    const user = await User.findById(req.user.id)
+      .populate({
+        path: 'roles',
+        select: 'libelle_role'
+      });
 
     if (!user) {
       return res.status(404).json({
@@ -251,30 +256,44 @@ const getMe = async (req, res) => {
         message: "User not found"
       });
     }
+
+    let userRoles = user.roles;
+    if (!userRoles || userRoles.length === 0) {
+      if (user.role) {
+        userRoles = [{ libelle_role: user.role }];
+      }
+    }
+    
+    
+    const responseData = {
+      id: user._id.toString(), 
+      _id: user._id.toString(), // ✅ STRING
+      email: user.email,
+      nom: user.nom,
+      prenom: user.prenom,
+      roles: userRoles,
+      role: user.role,
+      statut_compte: user.statut_compte,
+      statut_verification: user.statut_verification,
+      derniere_connexion: user.derniere_connexion,
+      telephone: user.telephone,
+      date_naissance: user.date_naissance,
+      ville: user.ville,
+      adresse: user.adresse,
+      code_postal: user.code_postal,
+      pays: user.pays,
+      genre: user.genre,
+      bio: user.bio,
+      profession: user.profession,
+      photo_profil: user.photo_profil,
+      compte_prive: user.compte_prive
+    };
+    
+    console.log(" Sending user data with ID:", responseData.id);
     
     res.status(200).json({
       success: true,
-      data: {
-        id: user._id,
-        email: user.email,
-        nom: user.nom,
-        prenom: user.prenom,
-        role: user.role, // Retourne le rôle unique
-        statut_compte: user.statut_compte,
-        statut_verification: user.statut_verification,
-        derniere_connexion: user.derniere_connexion,
-        telephone: user.telephone,
-        date_naissance: user.date_naissance,
-        ville: user.ville,
-        adresse: user.adresse,
-        code_postal: user.code_postal,
-        pays: user.pays,
-        genre: user.genre,
-        bio: user.bio,
-        profession: user.profession,
-        photo_profil: user.photo_profil,
-        compte_prive: user.compte_prive
-      }
+      data: responseData
     });
   } catch (error) {
     console.error(" GetMe error:", error);
