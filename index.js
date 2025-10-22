@@ -190,9 +190,9 @@ app.use((req, res, next) => {
       req.url.includes('/public') || req.url.includes('/livestreams') || req.url.includes('/livechat') ||
       req.url.includes('/health') || req.url.includes('/playlists') || req.url.includes('/friends') || 
       req.url.includes('/messages')) {  
-    console.log(`🎯 Route importante détectée: ${req.method} ${req.url}`);
+    console.log(` Route importante détectée: ${req.method} ${req.url}`);
     if (req.body && Object.keys(req.body).length > 0) {
-      console.log('📦 Body:', req.body);
+      console.log(' Body:', req.body);
     }
   }
   
@@ -254,7 +254,7 @@ mongoose.connect(process.env.MONGO_URI, {
           console.log("📋 Tâches de statistiques playlists actives:");
           console.log("   📈 Calcul des tendances: toutes les 3 heures");
           console.log("   🔄 Mise à jour des lectures: toutes les 30 minutes");
-          console.log("   🎯 Génération des recommandations: tous les jours à 4h00");
+          console.log("    Génération des recommandations: tous les jours à 4h00");
         } else {
           console.error("❌ Échec du démarrage du service de statistiques playlists");
         }
