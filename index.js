@@ -127,8 +127,8 @@ app.use(cookieParser());
 // ===== Configuration CORS =====
 const corsOptions = {
   origin: [
-    process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com',
-    'https://throwback-backup-frontend.onrender.com',
+    process.env.FRONTEND_URL || 'https://throwback-connect.com',
+    'https://throwback-connect.com',
     'http://localhost:3000'
   ],
   credentials: true,
