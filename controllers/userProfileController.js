@@ -35,7 +35,7 @@ exports.getUserProfile = async (req, res) => {
     }
     
     // Convertir les URLs relatives en URLs absolues pour les images
-    const backendUrl = process.env.BACKEND_URL || 'https://api.testdevinfinitiax.fr';
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
     
     if (user.photo_profil && !user.photo_profil.startsWith('http')) {
       user.photo_profil = `${backendUrl}${user.photo_profil}`;
@@ -146,7 +146,7 @@ exports.updateProfile = async (req, res) => {
     }
     
     // Convertir les URLs relatives en URLs absolues pour les images
-    const backendUrl = process.env.BACKEND_URL || 'https://api.testdevinfinitiax.fr';
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
     
     if (user.photo_profil && !user.photo_profil.startsWith('http')) {
       user.photo_profil = `${backendUrl}${user.photo_profil}`;
@@ -300,7 +300,7 @@ exports.uploadProfilePhoto = async (req, res) => {
       });
     }
 
-    const backendUrl = process.env.BACKEND_URL || 'https://api.testdevinfinitiax.fr';
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
     const relativePath = `/uploads/profiles/${req.file.filename}`;
     const fullPhotoUrl = `${backendUrl}${relativePath}`;
     
@@ -360,7 +360,7 @@ exports.uploadCoverPhoto = async (req, res) => {
       });
     }
 
-    const backendUrl = process.env.BACKEND_URL || 'https://api.testdevinfinitiax.fr';
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
     const relativePath = `/uploads/profiles/${req.file.filename}`;
     const fullPhotoUrl = `${backendUrl}${relativePath}`;
 

@@ -127,8 +127,8 @@ app.use(cookieParser());
 // ===== Configuration CORS =====
 const corsOptions = {
   origin: [
-    process.env.FRONTEND_URL || 'https://throwback-connect.com',
-    'https://throwback-connect.com',
+    process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com',
+    'https://testfrontend.throwback-connect.com',
     'http://localhost:3000'
   ],
   credentials: true,
@@ -205,69 +205,69 @@ mongoose.connect(process.env.MONGO_URI, {
   useUnifiedTopology: true,
 })
 .then(async () => {
-  console.log("✅ Connexion MongoDB réussie");
-  console.log("📊 Base de données:", mongoose.connection.db.databaseName);
+  console.log(" Connexion MongoDB réussie");
+  console.log(" Base de données:", mongoose.connection.db.databaseName);
   
   // ===== INITIALISATION SOCKET.IO =====
   try {
     initializeSocketIO(io);
-    console.log("🔌 Socket.IO initialisé avec succès");
-    console.log("👥 Utilisateurs en ligne: 0");
+    console.log(" Socket.IO initialisé avec succès");
+    console.log(" Utilisateurs en ligne: 0");
   } catch (error) {
-    console.error("❌ Erreur lors de l'initialisation de Socket.IO:", error);
+    console.error(" Erreur lors de l'initialisation de Socket.IO:", error);
   }
   
   // Initialisation du service de planification des streams
   try {
     streamSchedulerService = initStreamScheduler();
-    console.log("📅 Service de planification des livestreams initialisé");
+    console.log(" Service de planification des livestreams initialisé");
   } catch (error) {
-    console.error("❌ Erreur lors de l'initialisation du service de planification des livestreams:", error);
+    console.error(" Erreur lors de l'initialisation du service de planification des livestreams:", error);
   }
 
   // ===== INITIALISATION DU SYSTÈME DE NETTOYAGE AUTOMATIQUE =====
   if (process.env.ENABLE_STREAM_CLEANUP !== 'false') {
     try {
-      console.log("🧹 Initialisation du système de nettoyage automatique des streams...");
+      console.log(" Initialisation du système de nettoyage automatique des streams...");
       streamCleanupService = initializeStreamCleanup();
-      console.log("✅ Système de nettoyage automatique des streams initialisé");
-      console.log("📋 Tâches automatiques actives:");
-      console.log("   🔄 Nettoyage des statuts: toutes les minutes");
-      console.log("   📊 Statistiques: toutes les 6 heures");
-      console.log("   🛠️  Maintenance: tous les jours à 3h00");
+      console.log(" Système de nettoyage automatique des streams initialisé");
+      console.log(" Tâches automatiques actives:");
+      console.log("   Nettoyage des statuts: toutes les minutes");
+      console.log("    Statistiques: toutes les 6 heures");
+      console.log("     Maintenance: tous les jours à 3h00");
     } catch (error) {
-      console.error("❌ Erreur lors de l'initialisation du système de nettoyage:", error);
+      console.error(" Erreur lors de l'initialisation du système de nettoyage:", error);
     }
   } else {
-    console.log("⚠️  Système de nettoyage automatique désactivé par variable d'environnement");
+    console.log("  Système de nettoyage automatique désactivé par variable d'environnement");
   }
 
   // ===== INITIALISATION DU SERVICE DE STATISTIQUES PLAYLISTS =====
   if (process.env.ENABLE_PLAYLIST_STATS !== 'false') {
     try {
-      console.log("🎵 Initialisation du service de statistiques des playlists...");
+      console.log(" Initialisation du service de statistiques des playlists...");
       playlistStatsService = initPlaylistStatsService();
       
       setTimeout(() => {
         if (playlistStatsService.start()) {
-          console.log("✅ Service de statistiques des playlists démarré avec succès");
-          console.log("📋 Tâches de statistiques playlists actives:");
-          console.log("   📈 Calcul des tendances: toutes les 3 heures");
-          console.log("   🔄 Mise à jour des lectures: toutes les 30 minutes");
+          console.log(" Service de statistiques des playlists démarré avec succès");
+          console.log(" Tâches de statistiques playlists actives:");
+          console.log("    Calcul des tendances: toutes les 3 heures");
+          console.log("   Mise à jour des lectures: toutes les 30 minutes");
           console.log("    Génération des recommandations: tous les jours à 4h00");
         } else {
-          console.error("❌ Échec du démarrage du service de statistiques playlists");
+          console.error(" Échec du démarrage du service de statistiques playlists");
         }
       }, 5000);
     } catch (error) {
-      console.error("❌ Erreur lors de l'initialisation du service de statistiques playlists:", error);
+      console.error(" Erreur lors de l'initialisation du service de statistiques playlists:", error);
     }
   } else {
-    console.log("⚠️  Service de statistiques des playlists désactivé par variable d'environnement");
+    console.log("  Service de statistiques des playlists désactivé par variable d'environnement");
   }
 })
 .catch((err) => {
-  console.error("❌ Erreur MongoDB:", err);
+  console.error(" Erreur MongoDB:", err);
   process.exit(1);
 });
 
@@ -288,7 +288,7 @@ const extractUser = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = decoded;
       } catch (error) {
-        console.error("⚠️  Erreur de vérification du token:", error.message);
+        console.error("  Erreur de vérification du token:", error.message);
         req.user = null;
       }
     } else {
@@ -296,7 +296,7 @@ const extractUser = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    console.error("❌ Erreur d'authentification:", error);
+    console.error(" Erreur d'authentification:", error);
     req.user = null;
     next();
   }
@@ -331,9 +331,9 @@ try {
   liveChatController = require('./controllers/liveChatController');
   playlistController = require('./controllers/playlistController');
   
-  console.log("✅ Tous les contrôleurs chargés avec succès");
+  console.log(" Tous les contrôleurs chargés avec succès");
 } catch (error) {
-  console.error("❌ Erreur lors du chargement des contrôleurs:", error);
+  console.error(" Erreur lors du chargement des contrôleurs:", error);
 }
 
 // ===== ROUTES DE SANTÉ ET MONITORING =====
@@ -577,25 +577,25 @@ try {
   const adminLiveStreamRoutes = require('./routes/api/liveStreamRoutes');
   app.use('/api/admin/livestreams', adminLiveStreamRoutes);
   app.use('/api/livestreams/admin', adminLiveStreamRoutes);
-  console.log("✅ Routes admin livestreams chargées");
+  console.log(" Routes admin livestreams chargées");
 } catch (error) {
-  console.warn("⚠️  Routes admin livestreams non disponibles:", error.message);
+  console.warn("  Routes admin livestreams non disponibles:", error.message);
 }
 
 try {
   const userLiveStreamsRoutes = require('./routes/api/userLivestreams');
   app.use('/api/user/livestreams', userLiveStreamsRoutes);
-  console.log("✅ Routes utilisateur livestreams chargées");
+  console.log(" Routes utilisateur livestreams chargées");
 } catch (error) {
-  console.warn("⚠️  Routes utilisateur livestreams non disponibles:", error.message);
+  console.warn("  Routes utilisateur livestreams non disponibles:", error.message);
 }
 
 try {
   const liveStreamRoutes = require('./routes/api/liveStreamRoutes');
   app.use('/api/livestreams', liveStreamRoutes);
-  console.log("✅ Routes principales livestreams chargées");
+  console.log(" Routes principales livestreams chargées");
 } catch (error) {
-  console.warn("⚠️  Routes principales livestreams non disponibles:", error.message);
+  console.warn("  Routes principales livestreams non disponibles:", error.message);
 }
 
 // ===== ROUTES DE CHAT EN DIRECT =====
@@ -603,22 +603,22 @@ console.log("💬 Configuration des routes de chat en direct...");
 try {
   const liveChatRoutes = require('./routes/api/liveChat');
   app.use('/api/livechat', liveChatRoutes);
-  console.log("✅ Routes de chat en direct chargées avec succès");
+  console.log(" Routes de chat en direct chargées avec succès");
 } catch (error) {
-  console.warn("⚠️  Routes de chat en direct non disponibles:", error.message);
+  console.warn("  Routes de chat en direct non disponibles:", error.message);
 }
 
 // ===== ROUTES PLAYLISTS =====
-console.log("🎵 Configuration des routes de playlists...");
+console.log(" Configuration des routes de playlists...");
 const playlistRoutes = require('./routes/api/playlistRoutes');
 app.use('/api/playlists', playlistRoutes);
 
 try {
   const adminPlaylistRoutes = require('./routes/api/adminplaylistRoutes');
   app.use('/api/admin/playlists', adminPlaylistRoutes);
-  console.log("✅ Routes admin playlists chargées avec succès");
+  console.log(" Routes admin playlists chargées avec succès");
 } catch (error) {
-  console.warn("⚠️  Routes admin playlists non disponibles:", error.message);
+  console.warn("  Routes admin playlists non disponibles:", error.message);
 }
 
 app.get('/api/public/playlists/trending', (req, res, next) => {
@@ -663,14 +663,14 @@ const adminPostRoutes = require('./routes/api/adminPostRoutes');
 app.use('/api/admin/posts', adminPostRoutes);
 
 // ===== ROUTES AMIS ET MESSAGES (AVEC SOCKET.IO) =====
-console.log("👥 Configuration des routes amis et messages...");
+console.log(" Configuration des routes amis et messages...");
 const friendsRoutes = require('./routes/api/friends');
 const messagesRoutes = require('./routes/api/messages');
 app.use('/api/friends', friendsRoutes);
 app.use('/api/messages', messagesRoutes);
 
 // ===== ROUTES SUPPLÉMENTAIRES =====
-console.log("🔧 Configuration des routes supplémentaires...");
+console.log(" Configuration des routes supplémentaires...");
 
 app.use('/api/users', require('./routes/api/userProfile'));
 
@@ -680,9 +680,9 @@ app.use('/api/admin', adminApiRoutes);
 try {
   const adminCommentsRoutes = require('./routes/api/adminCommentsRoutes');
   app.use('/api/admin/comments', adminCommentsRoutes);
-  console.log("✅ Routes admin commentaires chargées avec succès");
+  console.log(" Routes admin commentaires chargées avec succès");
 } catch (error) {
-  console.warn("⚠️  Routes admin commentaires non disponibles:", error.message);
+  console.warn("  Routes admin commentaires non disponibles:", error.message);
 }
 
 const adminLikesRoutes = require('./routes/api/adminLikesRoutes');
@@ -694,29 +694,29 @@ try {
   const memoriesRoutes = require('./routes/api/memories');
   app.use('/api/memories', memoriesRoutes);
 } catch (error) {
-  console.warn("⚠️  Routes memories non disponibles:", error.message);
+  console.warn("  Routes memories non disponibles:", error.message);
 }
 
 try {
   const publicRoutes = require('./routes/api/public');
   app.use('/api/public', publicRoutes);
 } catch (error) {
-  console.warn("⚠️  Routes publiques (fichier) non disponibles:", error.message);
+  console.warn("  Routes publiques (fichier) non disponibles:", error.message);
 }
 
 try {
   const captchaRoutes = require("./routes/api/captcha");
   app.use("/api/captcha", captchaRoutes);
 } catch (error) {
-  console.warn("⚠️  Routes CAPTCHA non disponibles:", error.message);
+  console.warn("  Routes CAPTCHA non disponibles:", error.message);
 }
 
 try {
   const videoInfoRoutes = require('./routes/api/videoInfoRoutes');
   app.use('/api/video-info', videoInfoRoutes);
-  console.log("✅ Routes video-info chargées avec succès");
+  console.log(" Routes video-info chargées avec succès");
 } catch (error) {
-  console.warn("⚠️  Routes video-info non disponibles:", error.message);
+  console.warn("  Routes video-info non disponibles:", error.message);
   
   app.get('/api/video-info', (req, res) => {
     const { url, id, source } = req.query;
@@ -761,7 +761,7 @@ try {
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
   console.log("📚 Documentation Swagger disponible sur /api-docs");
 } catch (error) {
-  console.warn("⚠️  Documentation Swagger non disponible:", error.message);
+  console.warn("  Documentation Swagger non disponible:", error.message);
 }
 
 // ===== ROUTES DE RECHERCHE =====
@@ -774,9 +774,9 @@ try {
   app.get('/api/search/podcasts', searchController.searchPodcasts);
   app.get('/api/search/livestreams', searchController.searchLivestreams);
   app.get('/api/search/suggestions', searchController.getSearchSuggestions);
-  console.log("✅ Routes de recherche chargées avec succès");
+  console.log(" Routes de recherche chargées avec succès");
 } catch (error) {
-  console.warn("⚠️  Routes de recherche non disponibles:", error.message);
+  console.warn("  Routes de recherche non disponibles:", error.message);
 }
 
 // ===== ROUTES DE TEST =====
@@ -847,13 +847,13 @@ app.get("/", (req, res) => {
     version: "2.5.0",
     status: "Opérationnel",
     newFeatures: [
-      "🔌 Socket.IO intégré pour le temps réel",
+      " Socket.IO intégré pour le temps réel",
       "💬 Chat en temps réel",
       "🔔 Notifications instantanées",
-      "👥 Statut en ligne/hors ligne",
+      " Statut en ligne/hors ligne",
       "📝 Indicateurs de saisie",
-      "🎵 Module Playlists complet",
-      "📊 Statistiques avancées",
+      " Module Playlists complet",
+      " Statistiques avancées",
       "🔒 Sécurité renforcée",
       "📚 Documentation API intégrée"
     ],
@@ -893,7 +893,7 @@ app.get("/register", (req, res) => {
 
 // ===== GESTION DES ERREURS 404 =====
 app.use((req, res, next) => {
-  console.log(`❌ 404 ERROR: ${req.method} ${req.path}`);
+  console.log(` 404 ERROR: ${req.method} ${req.path}`);
   
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({
@@ -921,10 +921,10 @@ app.use((req, res, next) => {
 
 // ===== GESTION DES ERREURS 500 =====
 app.use((err, req, res, next) => {
-  console.error("❌ Erreur serveur:", err);
+  console.error(" Erreur serveur:", err);
   
   if (process.env.NODE_ENV === 'development') {
-    console.error("📋 Stack trace:", err.stack);
+    console.error(" Stack trace:", err.stack);
   }
   
   const response = {
@@ -945,32 +945,32 @@ app.use((err, req, res, next) => {
 
 // ===== GESTION DE L'ARRÊT GRACIEUX =====
 const gracefulShutdown = (signal) => {
-  console.log(`\n⚠️  Signal ${signal} reçu. Arrêt gracieux en cours...`);
+  console.log(`\n  Signal ${signal} reçu. Arrêt gracieux en cours...`);
   
   httpServer.close(() => {
-    console.log('✅ Serveur HTTP fermé');
+    console.log(' Serveur HTTP fermé');
     
     // Fermer Socket.IO
     io.close(() => {
-      console.log('✅ Socket.IO fermé');
+      console.log(' Socket.IO fermé');
       
       // Arrêter les services
       if (streamCleanupService) {
-        console.log('🧹 Arrêt du service de nettoyage des streams...');
+        console.log(' Arrêt du service de nettoyage des streams...');
       }
       
       if (streamSchedulerService) {
-        console.log('📅 Arrêt du service de planification des streams...');
+        console.log(' Arrêt du service de planification des streams...');
       }
       
       if (playlistStatsService) {
-        console.log('📊 Arrêt du service de statistiques des playlists...');
+        console.log(' Arrêt du service de statistiques des playlists...');
         playlistStatsService.shutdown();
       }
       
       // Fermer MongoDB
       mongoose.connection.close(() => {
-        console.log('✅ Connexion MongoDB fermée');
+        console.log(' Connexion MongoDB fermée');
         console.log('👋 Arrêt complet du serveur ThrowBack');
         process.exit(0);
       });
@@ -978,7 +978,7 @@ const gracefulShutdown = (signal) => {
   });
   
   setTimeout(() => {
-    console.error('⚠️  Arrêt forcé après timeout');
+    console.error('  Arrêt forcé après timeout');
     process.exit(1);
   }, 30000);
 };
@@ -987,14 +987,14 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 process.on('unhandledRejection', (err) => {
-  console.error('❌ Unhandled Promise Rejection:', err);
+  console.error(' Unhandled Promise Rejection:', err);
   if (process.env.NODE_ENV === 'production') {
     gracefulShutdown('unhandledRejection');
   }
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('❌ Uncaught Exception:', err);
+  console.error(' Uncaught Exception:', err);
   gracefulShutdown('uncaughtException');
 });
 
@@ -1005,14 +1005,14 @@ httpServer.listen(PORT, () => {
   console.log(`  SERVEUR THROWBACK AVEC SOCKET.IO ACTIF!`);
   console.log(`🎉 ========================================`);
   console.log(`  🌐 URL: http://localhost:${PORT}`);
-  console.log(`  🔌 Socket.IO: Active`);
-  console.log(`  👥 Online Users: ${getOnlineUsersCount()}`);
-  console.log(`  📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`   Socket.IO: Active`);
+  console.log(`   Online Users: ${getOnlineUsersCount()}`);
+  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`  🎨 Frontend: ${process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com'}`);
   console.log(`  📚 Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`\n  🚀 ROUTES SOCKET.IO:`);
-  console.log(`    🔌 WebSocket: ws://localhost:${PORT}`);
-  console.log(`    👥 GET /api/status/online-users`);
+  console.log(`     WebSocket: ws://localhost:${PORT}`);
+  console.log(`     GET /api/status/online-users`);
   console.log(`    🏥 GET /api/health (inclut status Socket.IO)`);
   console.log(`    🧪 GET /api/test/socketio (test Socket.IO)`);
   console.log(`\n  💬 ÉVÉNEMENTS SOCKET.IO:`);
@@ -1021,7 +1021,7 @@ httpServer.listen(PORT, () => {
   console.log(`    ✓ friend-request-sent (Demande d'ami)`);
   console.log(`    ✓ join-livestream (Rejoindre un live)`);
   console.log(`    ✓ online-users (Liste des utilisateurs en ligne)`);
-  console.log(`\n  🎵 THROWBACK AVEC SOCKET.IO EST PRÊT! \n`);
+  console.log(`\n   THROWBACK AVEC SOCKET.IO EST PRÊT! \n`);
 });
 
 module.exports = { app, httpServer, io };
