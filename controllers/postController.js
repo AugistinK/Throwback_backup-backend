@@ -5,6 +5,35 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
+
+// Récupérer le chemin d'upload depuis .env
+const UPLOAD_BASE_PATH = process.env.UPLOAD_PATH || path.join(__dirname, '../uploads');
+const UPLOADS_URL = process.env.UPLOADS_URL || '/uploads';
+
+/**
+ * Fonction helper pour supprimer un fichier média
+ */
+const deleteMediaFile = (mediaPath) => {
+  try {
+    // Si le chemin commence par /uploads, c'est un chemin relatif
+    if (mediaPath.startsWith('/uploads')) {
+      mediaPath = path.join(UPLOAD_BASE_PATH, mediaPath.replace('/uploads', ''));
+    }
+    
+    if (fs.existsSync(mediaPath)) {
+      fs.unlinkSync(mediaPath);
+      console.log('✅ Fichier supprimé:', mediaPath);
+      return true;
+    } else {
+      console.log('⚠️ Fichier non trouvé:', mediaPath);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Erreur suppression fichier:', error);
+    return false;
+  }
+};
 
 /**
  * @desc    Récupérer tous les posts (avec pagination et filtres)
@@ -21,7 +50,7 @@ exports.getPosts = async (req, res) => {
     const userId = req.query.userId;
     const sort = req.query.sort || 'recent'; 
     
-    //  LOG pour diagnostiquer
+    // LOG pour diagnostiquer
     console.log("📝 getPosts called with params:", { page, limit, hashtag, userId, sort });
     console.log("👤 User connected:", req.user ? req.user.id : "Not authenticated");
 
@@ -68,20 +97,20 @@ exports.getPosts = async (req, res) => {
     // Comptage total pour pagination
     const total = await Post.countDocuments(filter);
     
-    //  CORRECTION CRITIQUE : Ajouter _id dans le populate
+    // CORRECTION CRITIQUE : Ajouter _id dans le populate
     const posts = await Post.find(filter)
       .sort(sortOption)
       .skip(skip)
       .limit(limit)
-      .populate('auteur', '_id nom prenom photo_profil email') //  Ajouter _id et email
+      .populate('auteur', '_id nom prenom photo_profil email') // Ajouter _id et email
       .populate({
         path: 'commentaires',
         options: { limit: 3, sort: { createdAt: -1 } },
-        populate: { path: 'auteur', select: '_id nom prenom photo_profil' } //  Ajouter _id
+        populate: { path: 'auteur', select: '_id nom prenom photo_profil' } // Ajouter _id
       })
       .lean();
     
-    //  LOG pour vérifier la structure
+    // LOG pour vérifier la structure
     console.log("📦 Posts fetched:", posts.length);
     if (posts.length > 0) {
       console.log("📋 First post structure:", {
@@ -104,7 +133,7 @@ exports.getPosts = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error(" Erreur lors de la récupération des posts:", error);
+    console.error("❌ Erreur lors de la récupération des posts:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la récupération des posts"
@@ -129,7 +158,7 @@ exports.getPostById = async (req, res) => {
       });
     }
     
-    //  CORRECTION : Ajouter _id dans le populate
+    // CORRECTION : Ajouter _id dans le populate
     const post = await Post.findById(postId)
       .populate('auteur', '_id nom prenom photo_profil email')
       .populate({
@@ -159,7 +188,7 @@ exports.getPostById = async (req, res) => {
       data: post
     });
   } catch (error) {
-    console.error(" Erreur lors de la récupération du post:", error);
+    console.error("❌ Erreur lors de la récupération du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la récupération du post"
@@ -202,7 +231,8 @@ exports.createPost = async (req, res) => {
     
     // Si un fichier est uploadé
     if (req.file) {
-      newPost.media = `/uploads/posts/${req.file.filename}`;
+      // Utiliser l'URL complète depuis .env
+      newPost.media = `${UPLOADS_URL}/posts/${req.file.filename}`;
       newPost.type_media = req.file.mimetype.startsWith('image/') 
         ? 'IMAGE' 
         : req.file.mimetype.startsWith('video/') 
@@ -210,15 +240,17 @@ exports.createPost = async (req, res) => {
         : req.file.mimetype.startsWith('audio/') 
         ? 'AUDIO' 
         : 'NONE';
+      
+      console.log('📎 Media attached:', newPost.media);
     }
     
     await newPost.save();
     
-    //  CORRECTION : Ajouter _id dans le populate
+    // CORRECTION : Ajouter _id dans le populate
     const post = await Post.findById(newPost._id)
       .populate('auteur', '_id nom prenom photo_profil email');
     
-    console.log(" Post created:", post._id);
+    console.log("✅ Post created:", post._id);
     
     res.status(201).json({
       success: true,
@@ -226,7 +258,7 @@ exports.createPost = async (req, res) => {
       data: post
     });
   } catch (error) {
-    console.error(" Erreur lors de la création du post:", error);
+    console.error("❌ Erreur lors de la création du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la création du post"
@@ -265,7 +297,7 @@ exports.updatePost = async (req, res) => {
       });
     }
     
-    //  Vérifier si l'utilisateur est l'auteur du post
+    // Vérifier si l'utilisateur est l'auteur du post
     console.log("🔍 Comparing:", post.auteur.toString(), "vs", req.user.id);
     
     if (post.auteur.toString() !== req.user.id) {
@@ -289,7 +321,7 @@ exports.updatePost = async (req, res) => {
     
     await post.save();
     
-    console.log(" Post updated successfully");
+    console.log("✅ Post updated successfully");
     
     res.status(200).json({
       success: true,
@@ -297,7 +329,7 @@ exports.updatePost = async (req, res) => {
       data: post
     });
   } catch (error) {
-    console.error(" Erreur lors de la mise à jour du post:", error);
+    console.error("❌ Erreur lors de la mise à jour du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la mise à jour du post"
@@ -314,7 +346,7 @@ exports.deletePost = async (req, res) => {
   try {
     const postId = req.params.id;
     
-    console.log(" Delete post request:", postId, "by user:", req.user.id);
+    console.log("🗑️ Delete post request:", postId, "by user:", req.user.id);
     
     // Vérifier si l'ID est valide
     if (!mongoose.Types.ObjectId.isValid(postId)) {
@@ -335,7 +367,7 @@ exports.deletePost = async (req, res) => {
       });
     }
     
-    //  Vérifier les permissions - support des rôles depuis le tableau roles
+    // Vérifier les permissions - support des rôles depuis le tableau roles
     const userRoles = req.user.roles || [];
     const userRole = req.user.role;
     
@@ -361,12 +393,9 @@ exports.deletePost = async (req, res) => {
       });
     }
     
-    // Supprimer le média associé si existant
+    // Supprimer le média associé si existant (utilise la fonction helper)
     if (post.media) {
-      const mediaPath = path.join(__dirname, '..', post.media);
-      if (fs.existsSync(mediaPath)) {
-        fs.unlinkSync(mediaPath);
-      }
+      deleteMediaFile(post.media);
     }
     
     // Supprimer les commentaires associés
@@ -375,14 +404,14 @@ exports.deletePost = async (req, res) => {
     // Supprimer le post
     await Post.deleteOne({ _id: postId });
     
-    console.log(" Post deleted successfully");
+    console.log("✅ Post deleted successfully");
     
     res.status(200).json({
       success: true,
       message: "Post supprimé avec succès"
     });
   } catch (error) {
-    console.error(" Erreur lors de la suppression du post:", error);
+    console.error("❌ Erreur lors de la suppression du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la suppression du post"
@@ -390,7 +419,11 @@ exports.deletePost = async (req, res) => {
   }
 };
 
-//  Reste des fonctions inchangées (likePost, sharePost, reportPost)
+/**
+ * @desc    Liker/Unliker un post
+ * @route   POST /api/posts/:id/like
+ * @access  Private
+ */
 exports.likePost = async (req, res) => {
   try {
     const postId = req.params.id;
@@ -431,7 +464,7 @@ exports.likePost = async (req, res) => {
       likeCount: post.likes.length
     });
   } catch (error) {
-    console.error(" Erreur lors du like/unlike du post:", error);
+    console.error("❌ Erreur lors du like/unlike du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors du like/unlike du post"
@@ -439,6 +472,11 @@ exports.likePost = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Partager un post
+ * @route   POST /api/posts/:id/share
+ * @access  Private
+ */
 exports.sharePost = async (req, res) => {
   try {
     const postId = req.params.id;
@@ -468,7 +506,7 @@ exports.sharePost = async (req, res) => {
       shareCount: post.partages
     });
   } catch (error) {
-    console.error(" Erreur lors du partage du post:", error);
+    console.error("❌ Erreur lors du partage du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors du partage du post"
@@ -476,6 +514,11 @@ exports.sharePost = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Signaler un post
+ * @route   POST /api/posts/:id/report
+ * @access  Private
+ */
 exports.reportPost = async (req, res) => {
   try {
     const postId = req.params.id;
@@ -519,8 +562,10 @@ exports.reportPost = async (req, res) => {
       date: Date.now()
     });
     
+    // Auto-modération si 3 signalements ou plus
     if (post.signalements.length >= 3) {
       post.modere = true;
+      console.log('⚠️ Post auto-modéré après 3 signalements:', postId);
     }
     
     await post.save();
@@ -530,7 +575,7 @@ exports.reportPost = async (req, res) => {
       message: "Post signalé avec succès"
     });
   } catch (error) {
-    console.error(" Erreur lors du signalement du post:", error);
+    console.error("❌ Erreur lors du signalement du post:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors du signalement du post"

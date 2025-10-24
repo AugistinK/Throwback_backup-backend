@@ -5,14 +5,22 @@ const fs = require('fs');
 
 // Créer le répertoire de destination s'il n'existe pas
 const createUploadDir = () => {
-  const uploadDir = path.join(__dirname, '../uploads/shorts');
+  // Utiliser le chemin depuis les variables d'environnement
+  const baseUploadDir = process.env.UPLOAD_PATH || path.join(__dirname, '../uploads');
+  const shortsUploadDir = path.join(baseUploadDir, 'shorts');
   
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-    console.log(`Répertoire créé: ${uploadDir}`);
+  if (!fs.existsSync(shortsUploadDir)) {
+    fs.mkdirSync(shortsUploadDir, { recursive: true });
+    console.log(`Répertoire créé: ${shortsUploadDir}`);
   }
   
-  return uploadDir;
+  return shortsUploadDir;
+};
+
+// Fonction pour générer l'URL complète d'un fichier
+const getFileUrl = (filename) => {
+  const baseUrl = process.env.UPLOADS_URL || 'http://localhost:5000/uploads';
+  return `${baseUrl}/shorts/${filename}`;
 };
 
 const storage = multer.diskStorage({
@@ -95,7 +103,8 @@ const handleMulterError = (err, req, res, next) => {
 // Exporter le middleware complet avec gestion d'erreurs
 module.exports = {
   upload: upload.single('videoFile'),
-  handleMulterError
+  handleMulterError,
+  getFileUrl // Exporter la fonction pour permettre aux contrôleurs de construire l'URL complète
 };
 
 // Pour rétrocompatibilité avec l'ancien code

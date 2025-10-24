@@ -10,7 +10,4 @@ const uploadMemory = multer({
   }
 });
 
-
-
-
 module.exports = uploadMemory;

@@ -6,6 +6,10 @@ const LogAction = require('../models/LogAction');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
+
+// Récupérer le chemin d'upload depuis .env
+const UPLOAD_BASE_PATH = process.env.UPLOAD_PATH || path.join(__dirname, '../uploads');
 
 /**
  * @desc    Récupérer les statistiques de modération des posts
@@ -303,6 +307,30 @@ exports.restorePost = async (req, res) => {
 };
 
 /**
+ * Fonction helper pour supprimer un fichier média
+ */
+const deleteMediaFile = (mediaPath) => {
+  try {
+    // Si le chemin commence par /uploads, c'est un chemin relatif
+    if (mediaPath.startsWith('/uploads')) {
+      mediaPath = path.join(UPLOAD_BASE_PATH, mediaPath.replace('/uploads', ''));
+    }
+    
+    if (fs.existsSync(mediaPath)) {
+      fs.unlinkSync(mediaPath);
+      console.log('✅ Fichier supprimé:', mediaPath);
+      return true;
+    } else {
+      console.log('⚠️ Fichier non trouvé:', mediaPath);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Erreur suppression fichier:', error);
+    return false;
+  }
+};
+
+/**
  * @desc    Actions en masse sur les posts
  * @route   POST /api/admin/posts/bulk-action
  * @access  Private (Admin)
@@ -364,10 +392,7 @@ exports.bulkAction = async (req, res) => {
         const postsToDelete = await Post.find({ _id: { $in: validIds } });
         for (const post of postsToDelete) {
           if (post.media) {
-            const mediaPath = path.join(__dirname, '..', post.media);
-            if (fs.existsSync(mediaPath)) {
-              fs.unlinkSync(mediaPath);
-            }
+            deleteMediaFile(post.media);
           }
         }
         
@@ -502,10 +527,7 @@ exports.deletePost = async (req, res) => {
     
     // Supprimer le média associé si existant
     if (post.media) {
-      const mediaPath = path.join(__dirname, '..', post.media);
-      if (fs.existsSync(mediaPath)) {
-        fs.unlinkSync(mediaPath);
-      }
+      deleteMediaFile(post.media);
     }
     
     // Supprimer les commentaires associés

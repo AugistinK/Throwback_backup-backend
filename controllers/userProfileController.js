@@ -4,29 +4,52 @@ const { updateProfileValidation } = require('../utils/authValidation');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+require('dotenv').config();
+
+// Récupérer les chemins depuis .env
+const UPLOAD_BASE_PATH = process.env.UPLOAD_PATH || path.join(__dirname, '../uploads');
+const UPLOADS_URL = process.env.UPLOADS_URL || '/uploads';
+const PROFILES_PATH = path.join(UPLOAD_BASE_PATH, 'profiles');
+
+// Créer le dossier profiles s'il n'existe pas
+if (!fs.existsSync(PROFILES_PATH)) {
+  fs.mkdirSync(PROFILES_PATH, { recursive: true });
+  console.log(' Dossier profiles créé:', PROFILES_PATH);
+}
 
 /**
- * @desc    Récupérer le profil d'un utilisateur
- * @route   GET /api/users/:id
- * @access  Private/Public selon les paramètres de confidentialité
+ * Fonction helper pour supprimer un fichier
  */
+const deleteMediaFile = (mediaPath) => {
+  try {
+    if (mediaPath.startsWith('/uploads')) {
+      mediaPath = path.join(UPLOAD_BASE_PATH, mediaPath.replace('/uploads', ''));
+    }
+    if (fs.existsSync(mediaPath)) {
+      fs.unlinkSync(mediaPath);
+      console.log(' Fichier supprimé:', mediaPath);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error(' Erreur suppression:', error);
+    return false;
+  }
+};
+
 exports.getUserProfile = async (req, res) => {
   try {
     const userId = req.params.id;
-    console.log(' getUserProfile - userId:', userId);
-    
     const user = await User.findById(userId)
       .select('-mot_de_passe -reset_password_token -reset_password_expire -token_verification');
     
     if (!user) {
-      console.log(' getUserProfile - Utilisateur non trouvé');
       return res.status(404).json({
         success: false,
         message: "Utilisateur non trouvé"
       });
     }
     
-    // Vérifier si le profil est privé et si l'utilisateur a le droit de le voir
     if (user.compte_prive && (!req.user || req.user.id !== user._id.toString())) {
       return res.status(403).json({
         success: false,
@@ -34,8 +57,7 @@ exports.getUserProfile = async (req, res) => {
       });
     }
     
-    // Convertir les URLs relatives en URLs absolues pour les images
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    const backendUrl = process.env.BACKEND_URL || 'https://api.throwback-connect.com';
     
     if (user.photo_profil && !user.photo_profil.startsWith('http')) {
       user.photo_profil = `${backendUrl}${user.photo_profil}`;
@@ -45,14 +67,12 @@ exports.getUserProfile = async (req, res) => {
       user.photo_couverture = `${backendUrl}${user.photo_couverture}`;
     }
     
-    console.log(' getUserProfile - Réponse:', { success: true, data: user });
-    
     res.status(200).json({
       success: true,
       data: user
     });
   } catch (error) {
-    console.error(" Erreur lors de la récupération du profil:", error);
+    console.error(" Erreur récupération profil:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la récupération du profil",
@@ -61,28 +81,16 @@ exports.getUserProfile = async (req, res) => {
   }
 };
 
-/**
- * @desc    Mettre à jour le profil utilisateur
- * @route   PUT /api/users/profile
- * @access  Private
- */
 exports.updateProfile = async (req, res) => {
-  console.log(' updateProfile called for user:', req.user && req.user.id);
-  console.log(' req.body:', req.body);
-  console.log(' Headers:', req.headers);
-  
   try {
-    // Validation des données - si elle échoue, on renvoie une réponse d'erreur
     const { error } = updateProfileValidation(req.body);
     if (error) {
-      console.log(' Validation error:', error.details[0].message);
       return res.status(400).json({
         success: false,
         message: error.details[0].message
       });
     }
     
-    // Champs autorisés à mettre à jour
     const updatableFields = [
       'nom', 'prenom', 'bio', 'date_naissance', 'genre',
       'pays', 'ville', 'adresse', 'code_postal', 'telephone',
@@ -94,7 +102,6 @@ exports.updateProfile = async (req, res) => {
     updatableFields.forEach(field => {
       if (req.body[field] !== undefined) {
         if (field === 'genre' && req.body[field]) {
-          // Convertir le genre en format correct
           const genre = req.body[field].toUpperCase();
           if (['HOMME', 'FEMME', 'AUTRE'].includes(genre)) {
             updateData[field] = genre === 'HOMME' ? 'Homme' : 
@@ -106,16 +113,10 @@ exports.updateProfile = async (req, res) => {
       }
     });
     
-    console.log(' Données à mettre à jour:', updateData);
-    
-    // Ajouter la date de modification
     updateData.modified_date = Date.now();
     updateData.modified_by = req.user.id;
     
-    // Vérifier l'utilisateur avant la mise à jour
     const userBefore = await User.findById(req.user._id);
-    console.log(' Utilisateur avant mise à jour:', userBefore ? userBefore._id : 'Non trouvé');
-    
     if (!userBefore) {
       return res.status(404).json({
         success: false,
@@ -123,7 +124,6 @@ exports.updateProfile = async (req, res) => {
       });
     }
     
-    // Utiliser findOneAndUpdate au lieu de findByIdAndUpdate
     let user = await User.findOneAndUpdate(
       { _id: req.user._id },
       { $set: updateData },
@@ -135,18 +135,14 @@ exports.updateProfile = async (req, res) => {
     )
     .select('-mot_de_passe -reset_password_token -reset_password_expire -token_verification');
     
-    console.log(' Utilisateur après mise à jour:', user ? user._id : 'Non trouvé');
-    
     if (!user) {
-      console.log(' Utilisateur non trouvé');
       return res.status(404).json({
         success: false,
         message: "Utilisateur non trouvé"
       });
     }
     
-    // Convertir les URLs relatives en URLs absolues pour les images
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    const backendUrl = process.env.BACKEND_URL || 'https://api.throwback-connect.com';
     
     if (user.photo_profil && !user.photo_profil.startsWith('http')) {
       user.photo_profil = `${backendUrl}${user.photo_profil}`;
@@ -156,7 +152,6 @@ exports.updateProfile = async (req, res) => {
       user.photo_couverture = `${backendUrl}${user.photo_couverture}`;
     }
     
-    // Journaliser l'action
     try {
       await LogAction.create({
         type_action: "PROFIL_MODIFIE",
@@ -167,11 +162,8 @@ exports.updateProfile = async (req, res) => {
         created_by: "SYSTEM"
       });
     } catch (logError) {
-      console.error(" Erreur lors de la journalisation:", logError);
-      // Continue despite log error
+      console.error(" Erreur journalisation:", logError);
     }
-    
-    console.log(' Profil mis à jour avec succès:', user._id);
     
     res.status(200).json({
       success: true,
@@ -179,8 +171,7 @@ exports.updateProfile = async (req, res) => {
       data: user
     });
   } catch (error) {
-    console.error(" Erreur lors de la mise à jour du profil:", error);
-    console.error(" Stack trace:", error.stack);
+    console.error(" Erreur mise à jour profil:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la mise à jour du profil",
@@ -189,44 +180,27 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// Configuration de Multer pour l'upload d'images
+// Configuration Multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads/profiles');
-    console.log(' Upload directory:', uploadDir);
-    
-    // Créer le répertoire s'il n'existe pas
-    if (!fs.existsSync(uploadDir)) {
-      console.log(' Creating upload directory');
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    cb(null, uploadDir);
+    cb(null, PROFILES_PATH);
   },
   filename: (req, file, cb) => {
-    console.log(' Original filename:', file.originalname);
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const fileExt = path.extname(file.originalname);
     const filename = `user-${req.user.id}-${uniqueSuffix}${fileExt}`;
-    console.log(' Generated filename:', filename);
     cb(null, filename);
   }
 });
 
-// Filtrer les types de fichiers
 const fileFilter = (req, file, cb) => {
-  console.log(' File type check:', file.mimetype);
-  // N'accepter que les images
   if (file.mimetype.startsWith('image/')) {
-    console.log(' File type accepted');
     cb(null, true);
   } else {
-    console.log(' Invalid file type');
     cb(new Error('Seules les images sont autorisées'), false);
   }
 };
 
-// Configuration de Multer
 const upload = multer({
   storage,
   fileFilter,
@@ -236,13 +210,7 @@ const upload = multer({
   }
 });
 
-// Middleware de gestion d'erreur pour Multer
 const handleMulterError = (err, req, res, next) => {
-  console.error(' Multer error:', err);
-  console.log(' Request headers:', req.headers);
-  console.log(' Request body:', req.body);
-  console.log(' Request file:', req.file);
-
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
@@ -256,20 +224,17 @@ const handleMulterError = (err, req, res, next) => {
     });
   }
 
-  // Gérer l'erreur "Unexpected end of form"
   if (err.message === 'Unexpected end of form') {
     return res.status(400).json({
       success: false,
-      message: "Le formulaire est incomplet. Assurez-vous d'envoyer le fichier avec le champ 'photo' en utilisant multipart/form-data"
+      message: "Le formulaire est incomplet"
     });
   }
 
   next(err);
 };
 
-// Middleware pour vérifier le Content-Type
 const checkContentType = (req, res, next) => {
-  console.log(' Checking Content-Type:', req.headers['content-type']);
   if (!req.headers['content-type'] || !req.headers['content-type'].includes('multipart/form-data')) {
     return res.status(400).json({
       success: false,
@@ -279,20 +244,12 @@ const checkContentType = (req, res, next) => {
   next();
 };
 
-// Exporter les middlewares et la configuration
 exports.upload = upload;
 exports.handleMulterError = handleMulterError;
 exports.checkContentType = checkContentType;
 
-/**
- * @desc    Upload photo de profil
- * @route   POST /api/users/profile/photo
- * @access  Private
- */
 exports.uploadProfilePhoto = async (req, res) => {
   try {
-    console.log(' uploadProfilePhoto - Demande reçue:', req.file);
-    
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -300,17 +257,14 @@ exports.uploadProfilePhoto = async (req, res) => {
       });
     }
 
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    const backendUrl = process.env.BACKEND_URL || 'https://api.throwback-connect.com';
     const relativePath = `/uploads/profiles/${req.file.filename}`;
     const fullPhotoUrl = `${backendUrl}${relativePath}`;
-    
-    console.log(' Chemin relatif:', relativePath);
-    console.log(' URL complète:', fullPhotoUrl);
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
       { 
-        photo_profil: relativePath, // Stocker le chemin relatif dans la base de données
+        photo_profil: relativePath,
         modified_date: Date.now(),
         modified_by: req.user.id
       },
@@ -324,10 +278,7 @@ exports.uploadProfilePhoto = async (req, res) => {
       });
     }
     
-    // Remplacer par l'URL complète dans la réponse
     user.photo_profil = fullPhotoUrl;
-
-    console.log(' Photo de profil mise à jour:', user.photo_profil);
 
     res.status(200).json({
       success: true,
@@ -335,7 +286,7 @@ exports.uploadProfilePhoto = async (req, res) => {
       data: user
     });
   } catch (error) {
-    console.error(" Erreur lors de l'upload de la photo de profil:", error);
+    console.error(" Erreur upload photo profil:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de l'upload de la photo de profil",
@@ -344,15 +295,8 @@ exports.uploadProfilePhoto = async (req, res) => {
   }
 };
 
-/**
- * @desc    Upload photo de couverture
- * @route   POST /api/users/profile/cover
- * @access  Private
- */
 exports.uploadCoverPhoto = async (req, res) => {
   try {
-    console.log(' uploadCoverPhoto - Demande reçue:', req.file);
-    
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -360,14 +304,14 @@ exports.uploadCoverPhoto = async (req, res) => {
       });
     }
 
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    const backendUrl = process.env.BACKEND_URL || 'https://api.throwback-connect.com';
     const relativePath = `/uploads/profiles/${req.file.filename}`;
     const fullPhotoUrl = `${backendUrl}${relativePath}`;
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
       { 
-        photo_couverture: relativePath, // Stocker le chemin relatif dans la base de données
+        photo_couverture: relativePath,
         modified_date: Date.now(),
         modified_by: req.user.id
       },
@@ -381,7 +325,6 @@ exports.uploadCoverPhoto = async (req, res) => {
       });
     }
     
-    // Remplacer par l'URL complète dans la réponse
     user.photo_couverture = fullPhotoUrl;
 
     res.status(200).json({
@@ -390,7 +333,7 @@ exports.uploadCoverPhoto = async (req, res) => {
       data: user
     });
   } catch (error) {
-    console.error(" Erreur lors de l'upload de la photo de couverture:", error);
+    console.error(" Erreur upload photo couverture:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de l'upload de la photo de couverture",
@@ -399,12 +342,6 @@ exports.uploadCoverPhoto = async (req, res) => {
   }
 };
 
-
-/**
- * @desc    Supprimer la photo de profil
- * @route   DELETE /api/users/profile/photo
- * @access  Private
- */
 exports.deleteProfilePhoto = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -415,12 +352,8 @@ exports.deleteProfilePhoto = async (req, res) => {
       });
     }
 
-    // Supprimer l'ancienne photo si elle existe
     if (user.photo_profil) {
-      const oldPhotoPath = path.join(__dirname, '..', user.photo_profil);
-      if (fs.existsSync(oldPhotoPath)) {
-        fs.unlinkSync(oldPhotoPath);
-      }
+      deleteMediaFile(user.photo_profil);
     }
 
     user.photo_profil = undefined;
@@ -433,7 +366,7 @@ exports.deleteProfilePhoto = async (req, res) => {
       message: "Photo de profil supprimée avec succès"
     });
   } catch (error) {
-    console.error("Erreur lors de la suppression de la photo de profil:", error);
+    console.error(" Erreur suppression photo profil:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la suppression de la photo de profil"
@@ -441,11 +374,6 @@ exports.deleteProfilePhoto = async (req, res) => {
   }
 };
 
-/**
- * @desc    Supprimer la photo de couverture
- * @route   DELETE /api/users/profile/cover
- * @access  Private
- */
 exports.deleteCoverPhoto = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -456,12 +384,8 @@ exports.deleteCoverPhoto = async (req, res) => {
       });
     }
 
-    // Supprimer l'ancienne photo si elle existe
     if (user.photo_couverture) {
-      const oldPhotoPath = path.join(__dirname, '..', user.photo_couverture);
-      if (fs.existsSync(oldPhotoPath)) {
-        fs.unlinkSync(oldPhotoPath);
-      }
+      deleteMediaFile(user.photo_couverture);
     }
 
     user.photo_couverture = undefined;
@@ -474,7 +398,7 @@ exports.deleteCoverPhoto = async (req, res) => {
       message: "Photo de couverture supprimée avec succès"
     });
   } catch (error) {
-    console.error("Erreur lors de la suppression de la photo de couverture:", error);
+    console.error(" Erreur suppression photo couverture:", error);
     res.status(500).json({
       success: false,
       message: "Une erreur est survenue lors de la suppression de la photo de couverture"
@@ -482,11 +406,6 @@ exports.deleteCoverPhoto = async (req, res) => {
   }
 };
 
-/**
- * @desc    Récupérer les paramètres de confidentialité
- * @route   GET /api/users/profile/privacy
- * @access  Private
- */
 exports.getPrivacySettings = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
@@ -507,19 +426,14 @@ exports.getPrivacySettings = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Erreur lors de la récupération des paramètres de confidentialité:", error);
+    console.error(" Erreur récupération paramètres:", error);
     res.status(500).json({
       success: false,
-      message: "Une erreur est survenue lors de la récupération des paramètres de confidentialité"
+      message: "Une erreur est survenue"
     });
   }
 };
 
-/**
- * @desc    Mettre à jour les paramètres de confidentialité
- * @route   PUT /api/users/profile/privacy
- * @access  Private
- */
 exports.updatePrivacySettings = async (req, res) => {
   try {
     const { compte_prive, preferences_confidentialite } = req.body;
@@ -544,23 +458,18 @@ exports.updatePrivacySettings = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Paramètres de confidentialité mis à jour avec succès",
+      message: "Paramètres mis à jour avec succès",
       data: user
     });
   } catch (error) {
-    console.error("Erreur lors de la mise à jour des paramètres de confidentialité:", error);
+    console.error(" Erreur mise à jour paramètres:", error);
     res.status(500).json({
       success: false,
-      message: "Une erreur est survenue lors de la mise à jour des paramètres de confidentialité"
+      message: "Une erreur est survenue"
     });
   }
 };
 
-/**
- * @desc    Désactiver le compte
- * @route   PUT /api/users/profile/disable
- * @access  Private
- */
 exports.disableAccount = async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(
@@ -586,19 +495,14 @@ exports.disableAccount = async (req, res) => {
       message: "Compte désactivé avec succès"
     });
   } catch (error) {
-    console.error("Erreur lors de la désactivation du compte:", error);
+    console.error(" Erreur désactivation:", error);
     res.status(500).json({
       success: false,
-      message: "Une erreur est survenue lors de la désactivation du compte"
+      message: "Une erreur est survenue"
     });
   }
 };
 
-/**
- * @desc    Supprimer le compte
- * @route   DELETE /api/users/profile
- * @access  Private
- */
 exports.deleteAccount = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -609,21 +513,13 @@ exports.deleteAccount = async (req, res) => {
       });
     }
 
-    // Supprimer les photos si elles existent
     if (user.photo_profil) {
-      const photoPath = path.join(__dirname, '..', user.photo_profil);
-      if (fs.existsSync(photoPath)) {
-        fs.unlinkSync(photoPath);
-      }
+      deleteMediaFile(user.photo_profil);
     }
     if (user.photo_couverture) {
-      const coverPath = path.join(__dirname, '..', user.photo_couverture);
-      if (fs.existsSync(coverPath)) {
-        fs.unlinkSync(coverPath);
-      }
+      deleteMediaFile(user.photo_couverture);
     }
 
-    // Supprimer l'utilisateur
     await User.findByIdAndDelete(req.user.id);
 
     res.status(200).json({
@@ -631,15 +527,14 @@ exports.deleteAccount = async (req, res) => {
       message: "Compte supprimé avec succès"
     });
   } catch (error) {
-    console.error("Erreur lors de la suppression du compte:", error);
+    console.error(" Erreur suppression compte:", error);
     res.status(500).json({
       success: false,
-      message: "Une erreur est survenue lors de la suppression du compte"
+      message: "Une erreur est survenue"
     });
   }
 };
 
-// Exporter toutes les fonctions du contrôleur
 module.exports = {
   ...exports,
   getUserProfile: exports.getUserProfile,

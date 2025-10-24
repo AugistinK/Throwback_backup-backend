@@ -82,7 +82,7 @@ const register = async (req, res) => {
     console.log(" Token saved successfully:", tokenDoc._id);
 
     // Build verification link to redirect to API
-    const verificationLink = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/verify/${user._id}/${verificationToken}`;
+    const verificationLink = `${process.env.BACKEND_URL || 'https://api.throwback-connect.com'}/api/auth/verify/${user._id}/${verificationToken}`;
    
     try {
       // Send verification email
@@ -389,7 +389,7 @@ const verifyEmail = async (req, res) => {
     const user = await User.findById(id);
     if (!user) {
       console.log(" User not found");
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=invalid_link&message=Invalid verification link`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?error=invalid_link&message=Invalid verification link`);
     }
 
     // Log user object for debugging
@@ -402,7 +402,7 @@ const verifyEmail = async (req, res) => {
     // Check if user is already verified
     if (user.statut_verification) {
       console.log(" User already verified");
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?verified=true&message=Your account is already verified. You can now sign in.`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?verified=true&message=Your account is already verified. You can now sign in.`);
     }
 
     // Check if token exists
@@ -417,7 +417,7 @@ const verifyEmail = async (req, res) => {
 
     if (!tokenDoc) {
       console.log(" Token not found or expired");
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=expired_link&message=Verification link expired`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?error=expired_link&message=Verification link expired`);
     }
 
     // Activate account
@@ -440,10 +440,10 @@ const verifyEmail = async (req, res) => {
     console.log(" Email verified successfully");
     
     // Redirect to login page with success message (SANS ESPACE DANS L'URL)
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?verified=true&message=Email verified successfully. You can now sign in.`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?verified=true&message=Email verified successfully. You can now sign in.`);
   } catch (error) {
     console.error(" Email verification error:", error);
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=server_error&message=An error occurred during verification`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?error=server_error&message=An error occurred during verification`);
   }
 };
 
@@ -554,7 +554,7 @@ const resendVerification = async (req, res) => {
     }).save();
 
     // Build verification link pointing to API
-    const verificationLink = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/verify/${user._id}/${verificationToken}`;
+    const verificationLink = `${process.env.BACKEND_URL || 'https://api.throwback-connect.com'}/api/auth/verify/${user._id}/${verificationToken}`;
     
     try {
       // Send email

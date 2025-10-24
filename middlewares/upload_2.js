@@ -1,14 +1,23 @@
-
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Fonction pour générer l'URL complète d'un fichier de profil
+const getProfilePhotoUrl = (filename) => {
+  const baseUrl = process.env.UPLOADS_URL || 'http://localhost:5000/uploads';
+  return `${baseUrl}/profiles/${filename}`;
+};
+
 // Configure multer storage for user profile images
 const profileStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads/profiles');
+    // Utiliser la variable d'environnement pour le chemin de base
+    const baseUploadDir = process.env.UPLOAD_PATH || path.join(__dirname, '../uploads');
+    const uploadDir = path.join(baseUploadDir, 'profiles');
+    
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
+      console.log(`Created profiles directory: ${uploadDir}`);
     }
     cb(null, uploadDir);
   },
@@ -72,17 +81,28 @@ exports.uploadProfilePhoto = async (req, res) => {
       
       // Delete old photo if it exists
       if (user.photo_profil && !user.photo_profil.startsWith('http')) {
-        const oldPhotoPath = path.join(__dirname, '..', user.photo_profil);
+        // Si le chemin est relatif, construire le chemin absolu
+        const oldPhotoPath = user.photo_profil.startsWith('/uploads')
+          ? path.join(process.env.UPLOAD_PATH || path.join(__dirname, '..'), user.photo_profil.replace('/uploads', ''))
+          : path.join(__dirname, '..', user.photo_profil);
+          
         if (fs.existsSync(oldPhotoPath)) {
+          console.log(`Deleting old profile photo: ${oldPhotoPath}`);
           fs.unlinkSync(oldPhotoPath);
         }
       }
       
-      // Update user with new photo path
-      user.photo_profil = `/uploads/profiles/${req.file.filename}`;
+      // Générer le chemin relatif pour la BDD
+      const relativePhotoPath = `/profiles/${req.file.filename}`;
+      
+      // Update user with new photo path and generate full URL for response
+      user.photo_profil = relativePhotoPath; // Sauvegarder le chemin relatif
       user.modified_date = Date.now();
       user.modified_by = req.user.id;
       await user.save();
+      
+      // Générer l'URL complète pour la réponse
+      const photoUrl = getProfilePhotoUrl(req.file.filename);
       
       // Log action
       await LogAction.create({
@@ -95,7 +115,8 @@ exports.uploadProfilePhoto = async (req, res) => {
       res.json({
         success: true,
         message: "Profile photo uploaded successfully",
-        photo_profil: user.photo_profil
+        photo_profil: relativePhotoPath,
+        photo_url: photoUrl // Ajouter l'URL complète dans la réponse
       });
     });
   } catch (error) {
@@ -106,3 +127,7 @@ exports.uploadProfilePhoto = async (req, res) => {
     });
   }
 };
+
+// Exporter également la fonction d'URL et le middleware
+exports.getProfilePhotoUrl = getProfilePhotoUrl;
+exports.profileUpload = profileUpload;
