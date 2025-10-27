@@ -266,6 +266,8 @@ exports.createPost = async (req, res) => {
   }
 };
 
+// // controllers/postController.js
+
 /**
  * @desc    Modifier un post
  * @route   PUT /api/posts/:id

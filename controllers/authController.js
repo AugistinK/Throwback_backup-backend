@@ -242,13 +242,9 @@ const login = async (req, res) => {
  */
 const getMe = async (req, res) => {
   try {
-    console.log(" getMe called for user:", req.user?.id);
-    
     const user = await User.findById(req.user.id)
-      .populate({
-        path: 'roles',
-        select: 'libelle_role'
-      });
+      .select('-mot_de_passe -password_reset_token -password_reset_expires -token_verification')
+      .lean();
 
     if (!user) {
       return res.status(404).json({
@@ -256,47 +252,35 @@ const getMe = async (req, res) => {
         message: "User not found"
       });
     }
-
-    let userRoles = user.roles;
-    if (!userRoles || userRoles.length === 0) {
-      if (user.role) {
-        userRoles = [{ libelle_role: user.role }];
-      }
-    }
-    
-    
-    const responseData = {
-      id: user._id.toString(), 
-      _id: user._id.toString(), // ✅ STRING
-      email: user.email,
-      nom: user.nom,
-      prenom: user.prenom,
-      roles: userRoles,
-      role: user.role,
-      statut_compte: user.statut_compte,
-      statut_verification: user.statut_verification,
-      derniere_connexion: user.derniere_connexion,
-      telephone: user.telephone,
-      date_naissance: user.date_naissance,
-      ville: user.ville,
-      adresse: user.adresse,
-      code_postal: user.code_postal,
-      pays: user.pays,
-      genre: user.genre,
-      bio: user.bio,
-      profession: user.profession,
-      photo_profil: user.photo_profil,
-      compte_prive: user.compte_prive
-    };
-    
-    console.log(" Sending user data with ID:", responseData.id);
     
     res.status(200).json({
       success: true,
-      data: responseData
+      data: {
+        id: user._id.toString(),
+        _id: user._id.toString(),
+        email: user.email,
+        nom: user.nom,
+        prenom: user.prenom,
+        role: user.role || 'user',
+        statut_compte: user.statut_compte,
+        statut_verification: user.statut_verification,
+        derniere_connexion: user.derniere_connexion,
+        telephone: user.telephone,
+        date_naissance: user.date_naissance,
+        ville: user.ville,
+        adresse: user.adresse,
+        code_postal: user.code_postal,
+        pays: user.pays,
+        genre: user.genre,
+        bio: user.bio,
+        profession: user.profession,
+        photo_profil: user.photo_profil,
+        compte_prive: user.compte_prive,
+        date_inscription: user.date_inscription
+      }
     });
   } catch (error) {
-    console.error(" GetMe error:", error);
+    console.error("GetMe error:", error);
     res.status(500).json({
       success: false,
       message: "An error occurred while fetching user data"
