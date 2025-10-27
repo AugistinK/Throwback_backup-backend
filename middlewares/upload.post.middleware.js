@@ -3,17 +3,9 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Fonction pour générer l'URL complète d'un fichier
-const getFileUrl = (filename) => {
-  const baseUrl = process.env.UPLOADS_URL || 'http://localhost:5000/uploads';
-  return `${baseUrl}/posts/${filename}`;
-};
-
 // Créer le répertoire de destination s'il n'existe pas
 const createUploadDir = () => {
-  // Utiliser la variable d'environnement pour le chemin de base
-  const baseUploadDir = process.env.UPLOAD_PATH || path.join(__dirname, '../uploads');
-  const uploadDir = path.join(baseUploadDir, 'posts');
+  const uploadDir = path.join(__dirname, '../uploads/posts');
   
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
@@ -78,7 +70,7 @@ const upload = multer({
 // Middleware pour gérer les erreurs de multer
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    // Erreurs spécifiques à Multer
+    // Erreurs spécifiques Ã  Multer
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         success: false,
@@ -101,20 +93,7 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-// Middleware pour ajouter l'URL complète au fichier
-const addFileUrl = (req, res, next) => {
-  if (req.file) {
-    req.file.url = getFileUrl(req.file.filename);
-    console.log(`Fichier uploadé: ${req.file.url}`);
-  }
-  next();
-};
-
 module.exports = {
   upload: upload.single('media'),
-  handleMulterError,
-  getFileUrl,
-  addFileUrl, // Nouveau middleware pour ajouter l'URL au fichier
-  // Pour chaîner facilement les middlewares
-  middlewares: [upload.single('media'), addFileUrl, handleMulterError]
+  handleMulterError
 };

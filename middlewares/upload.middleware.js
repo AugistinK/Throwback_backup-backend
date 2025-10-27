@@ -3,30 +3,22 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Fonction pour générer l'URL complète d'un fichier
-const getFileUrl = (filename) => {
-  const baseUrl = process.env.UPLOADS_URL || 'http://localhost:5000/uploads';
-  return `${baseUrl}/shorts/${filename}`;
-};
-
 // Configuration du stockage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Utiliser la variable d'environnement pour le chemin de base
-    const baseUploadDir = process.env.UPLOAD_PATH || path.join(__dirname, '../uploads');
-    const uploadDir = path.join(baseUploadDir, 'shorts');
-    console.log('📁 Dossier d\'upload:', uploadDir);
+    const uploadDir = path.join(__dirname, '../uploads/shorts');
+    console.log(' Dossier d\'upload:', uploadDir);
     
     // Créer le répertoire s'il n'existe pas
     if (!fs.existsSync(uploadDir)) {
-      console.log('📁 Création du dossier shorts');
+      console.log(' Création du dossier uploads/shorts');
       fs.mkdirSync(uploadDir, { recursive: true });
     }
     
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    console.log('📄 Fichier original:', file.originalname);
+    console.log(' Fichier original:', file.originalname);
     
     // Générer un nom unique
     const ext = path.extname(file.originalname);
@@ -34,14 +26,14 @@ const storage = multer.diskStorage({
     const randomNum = Math.round(Math.random() * 1E9);
     const filename = `short-${timestamp}-${randomNum}${ext}`;
     
-    console.log('📄 Nom généré:', filename);
+    console.log(' Nom généré:', filename);
     cb(null, filename);
   }
 });
 
 // Filtre pour valider les types de fichiers
 const fileFilter = (req, file, cb) => {
-  console.log('🔍 Vérification du type de fichier:', file.mimetype);
+  console.log(' Vérification du type de fichier:', file.mimetype);
   
   // Types de vidéo acceptés
   const allowedTypes = [
@@ -53,10 +45,10 @@ const fileFilter = (req, file, cb) => {
   ];
   
   if (allowedTypes.includes(file.mimetype)) {
-    console.log('✅ Type de fichier accepté');
+    console.log('âœ… Type de fichier accepté');
     cb(null, true);
   } else {
-    console.log('❌ Type de fichier refusé');
+    console.log(' Type de fichier refusé');
     const error = new Error('Seuls les fichiers vidéo sont autorisés (MP4, AVI, MOV, WebM)');
     error.code = 'INVALID_FILE_TYPE';
     cb(error, false);
@@ -66,7 +58,7 @@ const fileFilter = (req, file, cb) => {
 // Limites de taille
 const limits = {
   fileSize: 100 * 1024 * 1024, // 100MB max
-  files: 1 // Un seul fichier à la fois
+  files: 1 // Un seul fichier Ã  la fois
 };
 
 // Configuration Multer
@@ -78,7 +70,7 @@ const upload = multer({
 
 // Middleware de gestion d'erreur personnalisé
 const handleMulterError = (err, req, res, next) => {
-  console.error('❌ Erreur Multer:', err);
+  console.error(' Erreur Multer:', err);
   
   if (err instanceof multer.MulterError) {
     switch (err.code) {
@@ -114,7 +106,7 @@ const handleMulterError = (err, req, res, next) => {
   }
   
   // Autres erreurs
-  console.error('❌ Erreur non Multer:', err);
+  console.error(' Erreur non Multer:', err);
   return res.status(500).json({
     success: false,
     message: 'Erreur interne lors de l\'upload'
@@ -123,22 +115,18 @@ const handleMulterError = (err, req, res, next) => {
 
 // Middleware de logging pour débuguer
 const logUploadInfo = (req, res, next) => {
-  console.log('📝 Upload middleware:');
-  console.log('📝 Headers:', req.headers['content-type']);
-  console.log('📝 Body keys:', Object.keys(req.body || {}));
-  console.log('📝 File:', req.file ? 'Présent' : 'Absent');
+  console.log(' Upload middleware:');
+  console.log(' Headers:', req.headers['content-type']);
+  console.log(' Body keys:', Object.keys(req.body || {}));
+  console.log(' File:', req.file ? 'Présent' : 'Absent');
   
   if (req.file) {
-    console.log('📝 File info:', {
+    console.log(' File info:', {
       originalname: req.file.originalname,
       filename: req.file.filename,
       size: req.file.size,
-      mimetype: req.file.mimetype,
-      url: getFileUrl(req.file.filename)
+      mimetype: req.file.mimetype
     });
-    
-    // Ajouter l'URL complète au fichier pour faciliter son utilisation
-    req.file.url = getFileUrl(req.file.filename);
   }
   
   next();
@@ -149,7 +137,6 @@ module.exports = {
   handleMulterError,
   logUploadInfo,
   single: (fieldName) => upload.single(fieldName),
-  getFileUrl, // Exporter la fonction pour que les contrôleurs puissent l'utiliser
   
   // Export direct pour compatibilité
   storage,

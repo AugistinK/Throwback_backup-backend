@@ -3,24 +3,16 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Créer le répertoire de destination s'il n'existe pas
+// CrÃ©er le rÃ©pertoire de destination s'il n'existe pas
 const createUploadDir = () => {
-  // Utiliser le chemin depuis les variables d'environnement
-  const baseUploadDir = process.env.UPLOAD_PATH || path.join(__dirname, '../uploads');
-  const shortsUploadDir = path.join(baseUploadDir, 'shorts');
+  const uploadDir = path.join(__dirname, '../uploads/shorts');
   
-  if (!fs.existsSync(shortsUploadDir)) {
-    fs.mkdirSync(shortsUploadDir, { recursive: true });
-    console.log(`Répertoire créé: ${shortsUploadDir}`);
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    console.log(`RÃ©pertoire crÃ©Ã©: ${uploadDir}`);
   }
   
-  return shortsUploadDir;
-};
-
-// Fonction pour générer l'URL complète d'un fichier
-const getFileUrl = (filename) => {
-  const baseUrl = process.env.UPLOADS_URL || 'http://localhost:5000/uploads';
-  return `${baseUrl}/shorts/${filename}`;
+  return uploadDir;
 };
 
 const storage = multer.diskStorage({
@@ -29,7 +21,7 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    // Générer un nom de fichier unique pour éviter les collisions
+    // GÃ©nÃ©rer un nom de fichier unique pour Ã©viter les collisions
     const userId = req.user?.id || 'unknown';
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substring(2, 10);
@@ -41,7 +33,7 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  // Définir les types MIME vidéo acceptés
+  // DÃ©finir les types MIME vidÃ©o acceptÃ©s
   const acceptedTypes = [
     'video/mp4', 
     'video/webm', 
@@ -51,7 +43,7 @@ const fileFilter = (req, file, cb) => {
   ];
   
   if (!acceptedTypes.includes(file.mimetype)) {
-    return cb(new Error('Format de vidéo non supporté. Formats acceptés: MP4, WebM, MOV, AVI, MKV'), false);
+    return cb(new Error('Format de vidÃ©o non supportÃ©. Formats acceptÃ©s: MP4, WebM, MOV, AVI, MKV'), false);
   }
   
   cb(null, true);
@@ -62,17 +54,17 @@ const limits = {
   files: 1
 };
 
-// Middleware d'upload avec gestion des erreurs intégrée
+// Middleware d'upload avec gestion des erreurs intÃ©grÃ©e
 const upload = multer({ 
   storage, 
   fileFilter, 
   limits 
 });
 
-// Middleware pour gérer les erreurs de multer
+// Middleware pour gÃ©rer les erreurs de multer
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    // Erreurs spécifiques à Multer
+    // Erreurs spÃ©cifiques Ã  Multer
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         success: false,
@@ -81,19 +73,19 @@ const handleMulterError = (err, req, res, next) => {
     } else if (err.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({
         success: false,
-        message: "Vous ne pouvez télécharger qu'un seul fichier à la fois."
+        message: "Vous ne pouvez tÃ©lÃ©charger qu'un seul fichier Ã  la fois."
       });
     } else {
       return res.status(400).json({
         success: false,
-        message: `Erreur lors du téléchargement: ${err.message}`
+        message: `Erreur lors du tÃ©lÃ©chargement: ${err.message}`
       });
     }
   } else if (err) {
     // Autres erreurs
     return res.status(400).json({
       success: false,
-      message: err.message || "Une erreur est survenue lors du téléchargement."
+      message: err.message || "Une erreur est survenue lors du tÃ©lÃ©chargement."
     });
   }
   
@@ -103,9 +95,8 @@ const handleMulterError = (err, req, res, next) => {
 // Exporter le middleware complet avec gestion d'erreurs
 module.exports = {
   upload: upload.single('videoFile'),
-  handleMulterError,
-  getFileUrl // Exporter la fonction pour permettre aux contrôleurs de construire l'URL complète
+  handleMulterError
 };
 
-// Pour rétrocompatibilité avec l'ancien code
+
 module.exports.default = upload;
