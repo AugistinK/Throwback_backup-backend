@@ -1,5 +1,7 @@
+// Podcast.js
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
+const axios = require('axios');
 
 const podcastSchema = new Schema({
   title: { 
@@ -15,9 +17,19 @@ const podcastSchema = new Schema({
     type: Number,
     default: 1
   },
-  vimeoUrl: {
+  videoUrl: {
     type: String,
     required: true
+  },
+  // Nouveau champ pour stocker la plateforme
+  platform: {
+    type: String,
+    enum: ['YOUTUBE', 'VIMEO', 'DAILYMOTION', 'OTHER'],
+    default: 'OTHER'
+  },
+  // Identifiant unique de la vidéo sur la plateforme
+  videoId: {
+    type: String
   },
   duration: {
     type: Number, 
@@ -26,6 +38,10 @@ const podcastSchema = new Schema({
   coverImage: {
     type: String,
     default: '/images/podcast-default.jpg'
+  },
+  // Champ pour stocker l'image thumbnail récupérée
+  thumbnailUrl: {
+    type: String
   },
   description: {
     type: String,
@@ -78,7 +94,6 @@ const podcastSchema = new Schema({
     type: Number,
     default: 0
   },
-  // Ajouter ce tableau pour les likes
   likes: [{
     type: Schema.Types.ObjectId,
     ref: 'User'
@@ -93,59 +108,122 @@ podcastSchema.methods.getFormattedEpisode = function() {
   return `EP.${this.episode.toString().padStart(2, '0')}`;
 };
 
-// Méthode pour extraire l'ID Vimeo à partir de l'URL
-podcastSchema.methods.getVimeoId = function() {
+// Fonction d'aide pour détecter la plateforme et extraire l'ID
+const detectPlatform = (url) => {
   try {
-    const url = new URL(this.vimeoUrl);
-    if (url.hostname.includes('vimeo.com')) {
-      // Format: https://vimeo.com/123456789
-      const pathParts = url.pathname.split('/').filter(Boolean);
-      return pathParts[0];
-    } else if (url.hostname.includes('player.vimeo.com')) {
-      // Format: https://player.vimeo.com/video/123456789
-      const pathParts = url.pathname.split('/').filter(Boolean);
-      if (pathParts[0] === 'video') {
-        return pathParts[1];
+    const videoUrl = new URL(url);
+    const hostname = videoUrl.hostname.toLowerCase();
+    
+    // YouTube
+    if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
+      let videoId;
+      if (hostname.includes('youtu.be')) {
+        videoId = videoUrl.pathname.substring(1);
+      } else if (videoUrl.pathname.includes('/embed/')) {
+        videoId = videoUrl.pathname.split('/embed/')[1];
+      } else if (videoUrl.pathname.includes('/shorts/')) {
+        videoId = videoUrl.pathname.split('/shorts/')[1];
+      } else {
+        videoId = videoUrl.searchParams.get('v');
       }
+      return { platform: 'YOUTUBE', videoId };
     }
-    return null;
+    
+    // Vimeo
+    else if (hostname.includes('vimeo.com')) {
+      const pathParts = videoUrl.pathname.split('/').filter(Boolean);
+      return { platform: 'VIMEO', videoId: pathParts[0] };
+    }
+    
+    // Dailymotion
+    else if (hostname.includes('dailymotion.com')) {
+      const pathParts = videoUrl.pathname.split('/').filter(Boolean);
+      let videoId = pathParts[pathParts.length - 1];
+      if (videoId.includes('video/')) {
+        videoId = videoId.split('video/')[1];
+      }
+      return { platform: 'DAILYMOTION', videoId };
+    }
+    
+    // Autre
+    return { platform: 'OTHER', videoId: null };
   } catch (error) {
-    console.error('Error extracting Vimeo ID:', error);
-    return null;
+    console.error('Error detecting video platform:', error);
+    return { platform: 'OTHER', videoId: null };
   }
 };
 
-// Middleware pour valider l'URL Vimeo
+// Fonction pour construire l'URL de la thumbnail
+const getThumbnailUrl = (platform, videoId) => {
+  switch (platform) {
+    case 'YOUTUBE':
+      return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+    case 'VIMEO':
+      // Pour Vimeo, il faut une API, donc on retourne null ici
+      // La véritable URL sera récupérée via l'API Vimeo dans un middleware
+      return null;
+    case 'DAILYMOTION':
+      return `https://www.dailymotion.com/thumbnail/video/${videoId}`;
+    default:
+      return null;
+  }
+};
+
+// Middleware pre-validate pour extraire la plateforme et l'ID
 podcastSchema.pre('validate', function(next) {
   try {
-    const url = new URL(this.vimeoUrl);
-    const isVimeoUrl = url.hostname.includes('vimeo.com') || url.hostname.includes('player.vimeo.com');
-    
-    if (!isVimeoUrl) {
-      this.invalidate('vimeoUrl', 'L\'URL doit être une URL Vimeo valide');
+    // Ne pas revalider si on est en train de faire un update partiel
+    if (this.isNew || this.isModified('videoUrl')) {
+      const { platform, videoId } = detectPlatform(this.videoUrl);
+      this.platform = platform;
+      this.videoId = videoId;
+      
+      // Mise à jour de l'URL de la thumbnail si on n'a pas de coverImage
+      if (!this.coverImage || this.coverImage.includes('podcast-default.jpg')) {
+        const thumbnailUrl = getThumbnailUrl(platform, videoId);
+        if (thumbnailUrl) {
+          this.thumbnailUrl = thumbnailUrl;
+        }
+      }
     }
-    
     next();
   } catch (error) {
-    this.invalidate('vimeoUrl', 'L\'URL doit être une URL valide');
-    next();
+    this.invalidate('videoUrl', 'L\'URL doit être une URL vidéo valide');
+    next(error);
   }
 });
 
-/**
- * Vérifier si un utilisateur a aimé ce podcast
- * @param {String} userId - ID de l'utilisateur
- * @returns {Boolean} - true si l'utilisateur a aimé, false sinon
- */
+// Hook pour remplir l'année
+podcastSchema.pre('save', function(next) {
+  if (this.isNew || this.isModified('createdAt')) {
+    this.annee = this.createdAt.getFullYear();
+  }
+  next();
+});
+
+// Méthode pour récupérer l'URL d'embed d'une vidéo
+podcastSchema.methods.getEmbedUrl = function() {
+  if (!this.videoId) return null;
+  
+  switch (this.platform) {
+    case 'YOUTUBE':
+      return `https://www.youtube.com/embed/${this.videoId}`;
+    case 'VIMEO':
+      return `https://player.vimeo.com/video/${this.videoId}`;
+    case 'DAILYMOTION':
+      return `https://www.dailymotion.com/embed/video/${this.videoId}`;
+    default:
+      return this.videoUrl;
+  }
+};
+
+// Vérification si un utilisateur a aimé ce podcast
 podcastSchema.methods.isLikedByUser = function(userId) {
   if (!this.likes) return false;
   return this.likes.some(id => id.toString() === userId.toString());
 };
 
-/**
- * Ajouter un like d'utilisateur à ce podcast
- * @param {String} userId - ID de l'utilisateur
- */
+// Ajouter un like d'utilisateur à ce podcast
 podcastSchema.methods.addLike = async function(userId) {
   if (!this.likes) {
     this.likes = [];
@@ -162,10 +240,7 @@ podcastSchema.methods.addLike = async function(userId) {
   return !alreadyLiked;
 };
 
-/**
- * Retirer un like d'utilisateur de ce podcast
- * @param {String} userId - ID de l'utilisateur
- */
+// Retirer un like d'utilisateur de ce podcast
 podcastSchema.methods.removeLike = async function(userId) {
   if (!this.likes) return false;
   

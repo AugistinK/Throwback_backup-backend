@@ -1,6 +1,8 @@
 const Podcast = require('../models/Podcast');
 const mongoose = require('mongoose');
 const LogAction = require('../models/LogAction');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * @desc    Récupérer tous les podcasts (publics)
@@ -116,9 +118,8 @@ exports.createPodcast = async (req, res) => {
       title,
       episode,
       season,
-      vimeoUrl,
+      videoUrl,
       duration,
-      coverImage,
       description,
       guestName,
       hostName,
@@ -126,15 +127,24 @@ exports.createPodcast = async (req, res) => {
       topics,
       category,
       isPublished,
-      isHighlighted
+      isHighlighted,
+      platform,
+      videoId,
+      thumbnailUrl
     } = req.body;
 
     // Valider les champs obligatoires
-    if (!title || !episode || !vimeoUrl || !duration) {
+    if (!title || !episode || !videoUrl || !duration) {
       return res.status(400).json({
         success: false,
-        message: 'Les champs titre, numéro d\'épisode, URL Vimeo et durée sont obligatoires'
+        message: 'Les champs titre, numéro d\'épisode, URL vidéo et durée sont obligatoires'
       });
+    }
+
+    // Si un fichier a été uploadé, utiliser son chemin
+    let coverImage = req.body.coverImage;
+    if (req.file) {
+      coverImage = `/uploads/podcasts/${req.file.filename}`;
     }
 
     // Créer le nouveau podcast
@@ -142,18 +152,21 @@ exports.createPodcast = async (req, res) => {
       title,
       episode,
       season: season || 1,
-      vimeoUrl,
+      videoUrl,
       duration,
       coverImage,
       description,
       guestName,
       hostName,
       publishDate: publishDate || Date.now(),
-      topics: topics || [],
+      topics: Array.isArray(topics) ? topics : (topics ? topics.split(',').map(t => t.trim()) : []),
       category,
       isPublished: isPublished !== undefined ? isPublished : true,
       isHighlighted: isHighlighted || false,
-      author: req.user.id
+      author: req.user.id,
+      platform,
+      videoId,
+      thumbnailUrl
     });
 
     await podcast.save();
@@ -188,23 +201,6 @@ exports.createPodcast = async (req, res) => {
  */
 exports.updatePodcast = async (req, res) => {
   try {
-    const {
-      title,
-      episode,
-      season,
-      vimeoUrl,
-      duration,
-      coverImage,
-      description,
-      guestName,
-      hostName,
-      publishDate,
-      topics,
-      category,
-      isPublished,
-      isHighlighted
-    } = req.body;
-
     // Vérifier si le podcast existe
     const podcast = await Podcast.findById(req.params.id);
     
@@ -215,21 +211,39 @@ exports.updatePodcast = async (req, res) => {
       });
     }
 
+    // Si un fichier a été uploadé, utiliser son chemin
+    if (req.file) {
+      // Supprimer l'ancienne image si elle existe et n'est pas l'image par défaut
+      if (podcast.coverImage && !podcast.coverImage.includes('podcast-default.jpg') && fs.existsSync(path.join(__dirname, '..', podcast.coverImage))) {
+        fs.unlinkSync(path.join(__dirname, '..', podcast.coverImage));
+      }
+      req.body.coverImage = `/uploads/podcasts/${req.file.filename}`;
+    }
+
+    // Si videoUrl a changé, mettre à jour platform et videoId
+    if (req.body.videoUrl && req.body.videoUrl !== podcast.videoUrl) {
+      // La logique de détection de plateforme sera gérée par le middleware et les hooks du modèle
+    }
+
     // Mettre à jour les champs
-    if (title) podcast.title = title;
-    if (episode) podcast.episode = episode;
-    if (season) podcast.season = season;
-    if (vimeoUrl) podcast.vimeoUrl = vimeoUrl;
-    if (duration) podcast.duration = duration;
-    if (coverImage) podcast.coverImage = coverImage;
-    if (description) podcast.description = description;
-    if (guestName) podcast.guestName = guestName;
-    if (hostName) podcast.hostName = hostName;
-    if (publishDate) podcast.publishDate = publishDate;
-    if (topics) podcast.topics = topics;
-    if (category) podcast.category = category;
-    if (isPublished !== undefined) podcast.isPublished = isPublished;
-    if (isHighlighted !== undefined) podcast.isHighlighted = isHighlighted;
+    const updatableFields = [
+      'title', 'episode', 'season', 'videoUrl', 'duration', 'coverImage',
+      'description', 'guestName', 'hostName', 'publishDate', 'topics',
+      'category', 'isPublished', 'isHighlighted', 'platform', 'videoId',
+      'thumbnailUrl'
+    ];
+
+    // Si topics est une chaîne, la convertir en tableau
+    if (req.body.topics && typeof req.body.topics === 'string') {
+      req.body.topics = req.body.topics.split(',').map(t => t.trim());
+    }
+
+    // Mettre à jour chaque champ
+    updatableFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        podcast[field] = req.body[field];
+      }
+    });
 
     await podcast.save();
 
@@ -273,6 +287,14 @@ exports.deletePodcast = async (req, res) => {
       });
     }
 
+    // Supprimer l'image de couverture si elle n'est pas l'image par défaut
+    if (podcast.coverImage && !podcast.coverImage.includes('podcast-default.jpg')) {
+      const imagePath = path.join(__dirname, '..', podcast.coverImage);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+    }
+
     // Supprimer le podcast
     await podcast.deleteOne();
 
@@ -297,6 +319,7 @@ exports.deletePodcast = async (req, res) => {
     });
   }
 };
+
 
 /**
  * @desc    Récupérer les statistiques des podcasts
