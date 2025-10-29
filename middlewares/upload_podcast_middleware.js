@@ -1,9 +1,8 @@
-// file_create: /home/claude/upload_podcast_middleware.js
+// file_create: /home/claude/upload_podcast_middleware_fix.js
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const sharp = require('sharp');
 
 // Créer le répertoire de destination s'il n'existe pas
 const createUploadDir = () => {
@@ -91,10 +90,10 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-// Middleware pour récupérer la thumbnail d'une vidéo
-const fetchVideoThumbnail = async (req, res, next) => {
-  // Seulement si un fichier n'a pas été uploadé et une URL vidéo est fournie
-  if (req.file || !req.body.videoUrl) {
+// Middleware pour extraire les infos de la vidéo sans télécharger la thumbnail
+const extractVideoInfo = async (req, res, next) => {
+  // Seulement si une URL vidéo est fournie
+  if (!req.body.videoUrl) {
     return next();
   }
 
@@ -103,6 +102,7 @@ const fetchVideoThumbnail = async (req, res, next) => {
     const url = new URL(req.body.videoUrl);
     const hostname = url.hostname.toLowerCase();
     let videoId = null;
+    let platform = 'OTHER';
     let thumbnailUrl = null;
 
     // YouTube
@@ -118,40 +118,18 @@ const fetchVideoThumbnail = async (req, res, next) => {
       }
       
       if (videoId) {
+        platform = 'YOUTUBE';
         thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
-        
-        // Télécharger et enregistrer la thumbnail
-        const response = await axios({
-          method: 'get',
-          url: thumbnailUrl,
-          responseType: 'arraybuffer'
-        });
-
-        const uploadDir = createUploadDir();
-        const fileName = `yt-${videoId}-${Date.now()}.jpg`;
-        const filePath = path.join(uploadDir, fileName);
-        
-        // Redimensionner et optimiser l'image
-        await sharp(response.data)
-          .resize(1280, 720, { fit: 'cover' })
-          .jpeg({ quality: 90 })
-          .toFile(filePath);
-        
-        // Ajouter le chemin de l'image au body
-        req.body.coverImage = `/uploads/podcasts/${fileName}`;
-        req.body.thumbnailUrl = thumbnailUrl;
       }
     }
     
-    // Vimeo - nécessite un appel API
+    // Vimeo
     else if (hostname.includes('vimeo.com')) {
       const pathParts = url.pathname.split('/').filter(Boolean);
       videoId = pathParts[0];
       
       if (videoId) {
-        // Pour un usage réel, vous devriez utiliser l'API Vimeo
-        // Mais pour la démo, on laisse null pour l'instant
-        // Note: une API key Vimeo serait nécessaire
+        platform = 'VIMEO';
       }
     }
     
@@ -164,49 +142,26 @@ const fetchVideoThumbnail = async (req, res, next) => {
       }
       
       if (videoId) {
+        platform = 'DAILYMOTION';
         thumbnailUrl = `https://www.dailymotion.com/thumbnail/video/${videoId}`;
-        
-        try {
-          const response = await axios({
-            method: 'get',
-            url: thumbnailUrl,
-            responseType: 'arraybuffer'
-          });
-  
-          const uploadDir = createUploadDir();
-          const fileName = `dm-${videoId}-${Date.now()}.jpg`;
-          const filePath = path.join(uploadDir, fileName);
-          
-          await sharp(response.data)
-            .resize(1280, 720, { fit: 'cover' })
-            .jpeg({ quality: 90 })
-            .toFile(filePath);
-          
-          req.body.coverImage = `/uploads/podcasts/${fileName}`;
-          req.body.thumbnailUrl = thumbnailUrl;
-        } catch (thumbnailError) {
-          console.error('Error fetching Dailymotion thumbnail:', thumbnailError);
-        }
       }
     }
 
     // Stocker l'ID et la plateforme dans le body
     if (videoId) {
       req.body.videoId = videoId;
+      req.body.platform = platform;
       
-      if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
-        req.body.platform = 'YOUTUBE';
-      } else if (hostname.includes('vimeo.com')) {
-        req.body.platform = 'VIMEO';
-      } else if (hostname.includes('dailymotion.com')) {
-        req.body.platform = 'DAILYMOTION';
-      } else {
-        req.body.platform = 'OTHER';
+      // Ne pas stocker la thumbnailUrl sans la télécharger car certains serveurs 
+      // peuvent bloquer les liens externes
+      // Utiliser simplement l'info pour l'affichage frontend
+      if (thumbnailUrl) {
+        req.body.thumbnailUrl = thumbnailUrl;
       }
     }
     
   } catch (error) {
-    console.error('Error fetching video thumbnail:', error);
+    console.error('Error extracting video info:', error);
     // Continuer même si l'extraction échoue
   }
   
@@ -216,5 +171,5 @@ const fetchVideoThumbnail = async (req, res, next) => {
 module.exports = {
   upload: upload.single('coverImage'),
   handleMulterError,
-  fetchVideoThumbnail
+  extractVideoInfo
 };

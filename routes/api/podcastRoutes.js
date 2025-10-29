@@ -41,7 +41,7 @@ router.post('/',
   isAdmin, 
   podcastUpload.upload,
   podcastUpload.handleMulterError,
-  podcastUpload.fetchVideoThumbnail,
+  podcastUpload.extractVideoInfo, 
   podcastController.createPodcast
 );
 
@@ -50,7 +50,7 @@ router.put('/:id',
   isAdmin, 
   podcastUpload.upload,
   podcastUpload.handleMulterError,
-  podcastUpload.fetchVideoThumbnail,
+  podcastUpload.extractVideoInfo,
   podcastController.updatePodcast
 );
 
