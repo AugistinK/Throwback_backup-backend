@@ -1,7 +1,9 @@
-// file_create: /home/claude/upload_podcast_middleware_minimal.js
+// file_create: /home/claude/upload_podcast_middleware.js
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
+const sharp = require('sharp');
 
 // Créer le répertoire de destination s'il n'existe pas
 const createUploadDir = () => {
@@ -25,7 +27,7 @@ const storage = multer.diskStorage({
     // Générer un nom de fichier unique
     const userId = req.user?.id || 'unknown';
     const timestamp = Date.now();
-    const randomStr = Math.round(Math.random() * 1000000);
+    const randomStr = Math.random().toString(36).substring(2, 10);
     const ext = path.extname(file.originalname).toLowerCase();
     
     const name = `podcast-${userId}-${timestamp}-${randomStr}${ext}`;
@@ -83,71 +85,128 @@ const handleMulterError = (err, req, res, next) => {
     return res.status(400).json({
       success: false,
       message: err.message || "Une erreur est survenue lors du téléchargement."
-      });
+    });
   }
   
   next();
 };
 
-// Middleware basique pour extraire la plateforme et l'ID vidéo
-const extractVideoInfo = (req, res, next) => {
-  // Seulement si une URL vidéo est fournie
-  if (!req.body.videoUrl) {
+// Middleware pour récupérer la thumbnail d'une vidéo
+const fetchVideoThumbnail = async (req, res, next) => {
+  // Seulement si un fichier n'a pas été uploadé et une URL vidéo est fournie
+  if (req.file || !req.body.videoUrl) {
     return next();
   }
 
   try {
-    // Extraction simple sans utiliser URL (pour éviter les problèmes de compatibilité)
-    const videoUrl = req.body.videoUrl;
-    
+    // Analyser l'URL pour déterminer la plateforme
+    const url = new URL(req.body.videoUrl);
+    const hostname = url.hostname.toLowerCase();
+    let videoId = null;
+    let thumbnailUrl = null;
+
     // YouTube
-    if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-      let videoId = null;
-      
-      if (videoUrl.includes('youtu.be/')) {
-        const parts = videoUrl.split('youtu.be/');
-        videoId = parts[1] ? parts[1].split('?')[0].split('&')[0] : null;
-      } else if (videoUrl.includes('/embed/')) {
-        const parts = videoUrl.split('/embed/');
-        videoId = parts[1] ? parts[1].split('?')[0].split('&')[0] : null;
-      } else if (videoUrl.includes('/shorts/')) {
-        const parts = videoUrl.split('/shorts/');
-        videoId = parts[1] ? parts[1].split('?')[0].split('&')[0] : null;
-      } else if (videoUrl.includes('v=')) {
-        const parts = videoUrl.split('v=');
-        videoId = parts[1] ? parts[1].split('&')[0] : null;
+    if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
+      if (hostname.includes('youtu.be')) {
+        videoId = url.pathname.substring(1);
+      } else if (url.pathname.includes('/embed/')) {
+        videoId = url.pathname.split('/embed/')[1];
+      } else if (url.pathname.includes('/shorts/')) {
+        videoId = url.pathname.split('/shorts/')[1];
+      } else {
+        videoId = url.searchParams.get('v');
       }
       
       if (videoId) {
-        req.body.videoId = videoId;
-        req.body.platform = 'YOUTUBE';
+        thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+        
+        // Télécharger et enregistrer la thumbnail
+        const response = await axios({
+          method: 'get',
+          url: thumbnailUrl,
+          responseType: 'arraybuffer'
+        });
+
+        const uploadDir = createUploadDir();
+        const fileName = `yt-${videoId}-${Date.now()}.jpg`;
+        const filePath = path.join(uploadDir, fileName);
+        
+        // Redimensionner et optimiser l'image
+        await sharp(response.data)
+          .resize(1280, 720, { fit: 'cover' })
+          .jpeg({ quality: 90 })
+          .toFile(filePath);
+        
+        // Ajouter le chemin de l'image au body
+        req.body.coverImage = `/uploads/podcasts/${fileName}`;
+        req.body.thumbnailUrl = thumbnailUrl;
       }
     }
     
-    // Vimeo
-    else if (videoUrl.includes('vimeo.com')) {
-      const regex = /vimeo\.com\/([0-9]+)/;
-      const match = videoUrl.match(regex);
+    // Vimeo - nécessite un appel API
+    else if (hostname.includes('vimeo.com')) {
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      videoId = pathParts[0];
       
-      if (match && match[1]) {
-        req.body.videoId = match[1];
-        req.body.platform = 'VIMEO';
+      if (videoId) {
+        // Pour un usage réel, vous devriez utiliser l'API Vimeo
+        // Mais pour la démo, on laisse null pour l'instant
+        // Note: une API key Vimeo serait nécessaire
       }
     }
     
     // Dailymotion
-    else if (videoUrl.includes('dailymotion.com')) {
-      const regex = /dailymotion\.com\/(?:video\/|embed\/video\/|)([a-zA-Z0-9]+)/;
-      const match = videoUrl.match(regex);
+    else if (hostname.includes('dailymotion.com')) {
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      videoId = pathParts[pathParts.length - 1];
+      if (videoId.includes('video/')) {
+        videoId = videoId.split('video/')[1];
+      }
       
-      if (match && match[1]) {
-        req.body.videoId = match[1];
+      if (videoId) {
+        thumbnailUrl = `https://www.dailymotion.com/thumbnail/video/${videoId}`;
+        
+        try {
+          const response = await axios({
+            method: 'get',
+            url: thumbnailUrl,
+            responseType: 'arraybuffer'
+          });
+  
+          const uploadDir = createUploadDir();
+          const fileName = `dm-${videoId}-${Date.now()}.jpg`;
+          const filePath = path.join(uploadDir, fileName);
+          
+          await sharp(response.data)
+            .resize(1280, 720, { fit: 'cover' })
+            .jpeg({ quality: 90 })
+            .toFile(filePath);
+          
+          req.body.coverImage = `/uploads/podcasts/${fileName}`;
+          req.body.thumbnailUrl = thumbnailUrl;
+        } catch (thumbnailError) {
+          console.error('Error fetching Dailymotion thumbnail:', thumbnailError);
+        }
+      }
+    }
+
+    // Stocker l'ID et la plateforme dans le body
+    if (videoId) {
+      req.body.videoId = videoId;
+      
+      if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
+        req.body.platform = 'YOUTUBE';
+      } else if (hostname.includes('vimeo.com')) {
+        req.body.platform = 'VIMEO';
+      } else if (hostname.includes('dailymotion.com')) {
         req.body.platform = 'DAILYMOTION';
+      } else {
+        req.body.platform = 'OTHER';
       }
     }
     
   } catch (error) {
-    console.error('Error extracting video info:', error);
+    console.error('Error fetching video thumbnail:', error);
     // Continuer même si l'extraction échoue
   }
   
@@ -157,5 +216,5 @@ const extractVideoInfo = (req, res, next) => {
 module.exports = {
   upload: upload.single('coverImage'),
   handleMulterError,
-  extractVideoInfo
+  fetchVideoThumbnail
 };
