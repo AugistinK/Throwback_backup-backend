@@ -1,8 +1,7 @@
-// file_create: /home/claude/upload_podcast_middleware_fix.js
+// file_create: /home/claude/upload_podcast_middleware_minimal.js
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const axios = require('axios');
 
 // Créer le répertoire de destination s'il n'existe pas
 const createUploadDir = () => {
@@ -26,7 +25,7 @@ const storage = multer.diskStorage({
     // Générer un nom de fichier unique
     const userId = req.user?.id || 'unknown';
     const timestamp = Date.now();
-    const randomStr = Math.random().toString(36).substring(2, 10);
+    const randomStr = Math.round(Math.random() * 1000000);
     const ext = path.extname(file.originalname).toLowerCase();
     
     const name = `podcast-${userId}-${timestamp}-${randomStr}${ext}`;
@@ -84,79 +83,66 @@ const handleMulterError = (err, req, res, next) => {
     return res.status(400).json({
       success: false,
       message: err.message || "Une erreur est survenue lors du téléchargement."
-    });
+      });
   }
   
   next();
 };
 
-// Middleware pour extraire les infos de la vidéo sans télécharger la thumbnail
-const extractVideoInfo = async (req, res, next) => {
+// Middleware basique pour extraire la plateforme et l'ID vidéo
+const extractVideoInfo = (req, res, next) => {
   // Seulement si une URL vidéo est fournie
   if (!req.body.videoUrl) {
     return next();
   }
 
   try {
-    // Analyser l'URL pour déterminer la plateforme
-    const url = new URL(req.body.videoUrl);
-    const hostname = url.hostname.toLowerCase();
-    let videoId = null;
-    let platform = 'OTHER';
-    let thumbnailUrl = null;
-
+    // Extraction simple sans utiliser URL (pour éviter les problèmes de compatibilité)
+    const videoUrl = req.body.videoUrl;
+    
     // YouTube
-    if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
-      if (hostname.includes('youtu.be')) {
-        videoId = url.pathname.substring(1);
-      } else if (url.pathname.includes('/embed/')) {
-        videoId = url.pathname.split('/embed/')[1];
-      } else if (url.pathname.includes('/shorts/')) {
-        videoId = url.pathname.split('/shorts/')[1];
-      } else {
-        videoId = url.searchParams.get('v');
+    if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+      let videoId = null;
+      
+      if (videoUrl.includes('youtu.be/')) {
+        const parts = videoUrl.split('youtu.be/');
+        videoId = parts[1] ? parts[1].split('?')[0].split('&')[0] : null;
+      } else if (videoUrl.includes('/embed/')) {
+        const parts = videoUrl.split('/embed/');
+        videoId = parts[1] ? parts[1].split('?')[0].split('&')[0] : null;
+      } else if (videoUrl.includes('/shorts/')) {
+        const parts = videoUrl.split('/shorts/');
+        videoId = parts[1] ? parts[1].split('?')[0].split('&')[0] : null;
+      } else if (videoUrl.includes('v=')) {
+        const parts = videoUrl.split('v=');
+        videoId = parts[1] ? parts[1].split('&')[0] : null;
       }
       
       if (videoId) {
-        platform = 'YOUTUBE';
-        thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+        req.body.videoId = videoId;
+        req.body.platform = 'YOUTUBE';
       }
     }
     
     // Vimeo
-    else if (hostname.includes('vimeo.com')) {
-      const pathParts = url.pathname.split('/').filter(Boolean);
-      videoId = pathParts[0];
+    else if (videoUrl.includes('vimeo.com')) {
+      const regex = /vimeo\.com\/([0-9]+)/;
+      const match = videoUrl.match(regex);
       
-      if (videoId) {
-        platform = 'VIMEO';
+      if (match && match[1]) {
+        req.body.videoId = match[1];
+        req.body.platform = 'VIMEO';
       }
     }
     
     // Dailymotion
-    else if (hostname.includes('dailymotion.com')) {
-      const pathParts = url.pathname.split('/').filter(Boolean);
-      videoId = pathParts[pathParts.length - 1];
-      if (videoId.includes('video/')) {
-        videoId = videoId.split('video/')[1];
-      }
+    else if (videoUrl.includes('dailymotion.com')) {
+      const regex = /dailymotion\.com\/(?:video\/|embed\/video\/|)([a-zA-Z0-9]+)/;
+      const match = videoUrl.match(regex);
       
-      if (videoId) {
-        platform = 'DAILYMOTION';
-        thumbnailUrl = `https://www.dailymotion.com/thumbnail/video/${videoId}`;
-      }
-    }
-
-    // Stocker l'ID et la plateforme dans le body
-    if (videoId) {
-      req.body.videoId = videoId;
-      req.body.platform = platform;
-      
-      // Ne pas stocker la thumbnailUrl sans la télécharger car certains serveurs 
-      // peuvent bloquer les liens externes
-      // Utiliser simplement l'info pour l'affichage frontend
-      if (thumbnailUrl) {
-        req.body.thumbnailUrl = thumbnailUrl;
+      if (match && match[1]) {
+        req.body.videoId = match[1];
+        req.body.platform = 'DAILYMOTION';
       }
     }
     
