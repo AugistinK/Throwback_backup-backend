@@ -1,4 +1,4 @@
-// file_create: /home/claude/podcastRoutes.js
+// podcastRoutes.js
 const express = require('express');
 const router = express.Router();
 const podcastController = require('../../controllers/podcastController');
@@ -13,9 +13,6 @@ router.get('/user/seasons', userPodcastController.getAvailableSeasons);
 router.get('/user/categories', userPodcastController.getAvailableCategories);
 router.get('/user/category/:category', userPodcastController.getPodcastsByCategory);
 router.get('/user/season/:season', userPodcastController.getPodcastsBySeason);
-
-
-router.get('/thumbnail/:id', userPodcastController.getPodcastThumbnail);
 
 
 // Route principale pour lister les podcasts

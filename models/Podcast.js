@@ -1,4 +1,6 @@
-// Podcast.js
+// file_create: /home/claude/PodcastModel.js
+// Amélioration de la méthode getEmbedUrl dans le modèle Podcast
+
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
 const axios = require('axios');
@@ -126,26 +128,43 @@ const detectPlatform = (url) => {
       } else {
         videoId = videoUrl.searchParams.get('v');
       }
+      // Nettoyer l'ID des paramètres supplémentaires
+      if (videoId && videoId.includes('&')) {
+        videoId = videoId.split('&')[0];
+      }
       return { platform: 'YOUTUBE', videoId };
     }
     
     // Vimeo
     else if (hostname.includes('vimeo.com')) {
       const pathParts = videoUrl.pathname.split('/').filter(Boolean);
-      return { platform: 'VIMEO', videoId: pathParts[0] };
+      const videoId = pathParts[0];
+      // Nettoyer l'ID des paramètres supplémentaires
+      return { platform: 'VIMEO', videoId };
     }
     
     // Dailymotion
     else if (hostname.includes('dailymotion.com')) {
-      const pathParts = videoUrl.pathname.split('/').filter(Boolean);
-      let videoId = pathParts[pathParts.length - 1];
-      if (videoId.includes('video/')) {
-        videoId = videoId.split('video/')[1];
+      let videoId;
+      if (videoUrl.pathname.includes('/video/')) {
+        videoId = videoUrl.pathname.split('/video/')[1];
+      } else {
+        const pathParts = videoUrl.pathname.split('/').filter(Boolean);
+        videoId = pathParts[pathParts.length - 1];
+      }
+      // Nettoyer l'ID des paramètres supplémentaires
+      if (videoId && videoId.includes('?')) {
+        videoId = videoId.split('?')[0];
       }
       return { platform: 'DAILYMOTION', videoId };
     }
     
-    // Autre
+    // Autre - essayer de déterminer à partir de l'URL
+    if (url.includes('embed') || url.includes('player')) {
+      // C'est probablement déjà une URL d'embed
+      return { platform: 'OTHER', videoId: url };
+    }
+    
     return { platform: 'OTHER', videoId: null };
   } catch (error) {
     console.error('Error detecting video platform:', error);
@@ -159,8 +178,7 @@ const getThumbnailUrl = (platform, videoId) => {
     case 'YOUTUBE':
       return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
     case 'VIMEO':
-      // Pour Vimeo, il faut une API, donc on retourne null ici
-      // La véritable URL sera récupérée via l'API Vimeo dans un middleware
+      // Pour Vimeo, l'URL de la thumbnail nécessite l'API
       return null;
     case 'DAILYMOTION':
       return `https://www.dailymotion.com/thumbnail/video/${videoId}`;
@@ -201,18 +219,29 @@ podcastSchema.pre('save', function(next) {
   next();
 });
 
-// Méthode pour récupérer l'URL d'embed d'une vidéo
+// Méthode améliorée pour récupérer l'URL d'embed d'une vidéo
 podcastSchema.methods.getEmbedUrl = function() {
+  if (!this.videoId && this.platform === 'OTHER') {
+    // Si l'URL est déjà une URL d'embed ou une URL non reconnue
+    return this.videoUrl;
+  }
+  
   if (!this.videoId) return null;
   
+  // Ajouter des paramètres pour améliorer l'expérience utilisateur
   switch (this.platform) {
     case 'YOUTUBE':
-      return `https://www.youtube.com/embed/${this.videoId}`;
+      return `https://www.youtube.com/embed/${this.videoId}?autoplay=0&rel=0&showinfo=1`;
     case 'VIMEO':
-      return `https://player.vimeo.com/video/${this.videoId}`;
+      return `https://player.vimeo.com/video/${this.videoId}?autoplay=0&title=1&byline=1&portrait=1`;
     case 'DAILYMOTION':
-      return `https://www.dailymotion.com/embed/video/${this.videoId}`;
+      return `https://www.dailymotion.com/embed/video/${this.videoId}?autoplay=0`;
     default:
+      // Si c'est déjà une URL d'embed, la retourner telle quelle
+      if (this.videoUrl.includes('embed') || this.videoUrl.includes('player')) {
+        return this.videoUrl;
+      }
+      // Sinon, essayer de créer une iframe avec l'URL
       return this.videoUrl;
   }
 };
@@ -255,6 +284,23 @@ podcastSchema.methods.removeLike = async function(userId) {
   }
   
   return false;
+};
+
+// Méthode pour récupérer l'URL de la thumbnail
+podcastSchema.methods.getThumbnailUrl = function() {
+  if (this.thumbnailUrl) {
+    return this.thumbnailUrl;
+  }
+  
+  if (this.coverImage && !this.coverImage.includes('podcast-default.jpg')) {
+    return this.coverImage;
+  }
+  
+  if (this.videoId) {
+    return getThumbnailUrl(this.platform, this.videoId);
+  }
+  
+  return '/images/podcast-default.jpg';
 };
 
 module.exports = model('Podcast', podcastSchema);

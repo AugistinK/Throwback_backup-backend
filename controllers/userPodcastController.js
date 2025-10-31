@@ -338,6 +338,9 @@ exports.getPodcastsBySeason = async (req, res) => {
   }
 };
 
+
+// controllers/userPodcastController.js
+
 /**
  * @desc    Liker un podcast
  * @route   POST /api/podcasts/user/:podcastId/like
@@ -649,6 +652,11 @@ exports.getPodcastMemories = async (req, res) => {
   }
 };
 
+
+
+// controllers/userPodcastController.js
+
+
 /**
  * @desc    Ajouter un podcast à une playlist
  * @route   POST /api/podcasts/user/:podcastId/playlist
@@ -884,61 +892,3 @@ exports.sharePodcast = async (req, res) => {
   }
 };
 
-/**
- * @desc    Récupérer la thumbnail d'un podcast
- * @route   GET /api/podcasts/thumbnail/:id
- * @access  Public
- */
-exports.getPodcastThumbnail = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    // Récupérer le podcast
-    const podcast = await Podcast.findById(id);
-    
-    if (!podcast) {
-      // Si le podcast n'existe pas, servir l'image par défaut
-      return res.redirect('/images/podcast-default.jpg');
-    }
-    
-    // Priorité des sources d'images:
-    // 1. coverImage personnalisée
-    // 2. thumbnailUrl
-    // 3. Image par défaut basée sur la plateforme
-    
-    if (podcast.coverImage && 
-        !podcast.coverImage.includes('podcast-default') && 
-        podcast.coverImage.startsWith('/')) {
-      // Si c'est un chemin local
-      return res.redirect(podcast.coverImage);
-    }
-    
-    if (podcast.thumbnailUrl) {
-      // Si c'est une URL externe, la servir via proxy pour éviter les problèmes CORS
-      // Note: ceci nécessite un middleware de proxy que nous ne détaillerons pas ici
-      return res.redirect(podcast.thumbnailUrl);
-    }
-    
-    // Générer une URL basée sur la plateforme
-    if (podcast.videoId && podcast.platform) {
-      switch (podcast.platform) {
-        case 'YOUTUBE':
-          return res.redirect(`https://img.youtube.com/vi/${podcast.videoId}/maxresdefault.jpg`);
-        case 'VIMEO':
-          // Rediriger vers une image générée côté serveur pour Vimeo
-          // (nécessiterait une implémentation supplémentaire)
-          break;
-        case 'DAILYMOTION':
-          return res.redirect(`https://www.dailymotion.com/thumbnail/video/${podcast.videoId}`);
-      }
-    }
-    
-    // Par défaut, servir l'image par défaut
-    return res.redirect('/images/podcast-default.jpg');
-    
-  } catch (error) {
-    console.error('Error fetching podcast thumbnail:', error);
-    // En cas d'erreur, servir l'image par défaut
-    return res.redirect('/images/podcast-default.jpg');
-  }
-};

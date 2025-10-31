@@ -72,8 +72,11 @@ exports.getAllPodcasts = async (req, res) => {
   }
 };
 
-// Dans podcastController.js, méthode getPodcastById
-
+/**
+ * @desc    Récupérer un podcast par son ID
+ * @route   GET /api/podcasts/:id
+ * @access  Public
+ */
 exports.getPodcastById = async (req, res) => {
   try {
     const podcast = await Podcast.findById(req.params.id)
@@ -90,23 +93,9 @@ exports.getPodcastById = async (req, res) => {
     podcast.viewCount += 1;
     await podcast.save();
 
-    // Préparer les données complètes pour le frontend
-    const podcastData = {
-      ...podcast.toObject(),
-      
-      // S'assurer que les URLs d'image sont complètes
-      coverImageUrl: podcast.coverImage ? 
-        (podcast.coverImage.startsWith('http') ? podcast.coverImage : 
-        `${process.env.BACKEND_URL || 'https://api.throwback-connect.com'}${podcast.coverImage.startsWith('/') ? '' : '/'}${podcast.coverImage}`) 
-        : null,
-        
-      // S'assurer que l'URL de la plateforme est utilisable pour l'embed
-      embedUrl: podcast.getEmbedUrl ? podcast.getEmbedUrl() : null
-    };
-
     res.status(200).json({
       success: true,
-      data: podcastData
+      data: podcast
     });
   } catch (error) {
     console.error('Error fetching podcast:', error);
