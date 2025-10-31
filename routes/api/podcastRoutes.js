@@ -14,6 +14,10 @@ router.get('/user/categories', userPodcastController.getAvailableCategories);
 router.get('/user/category/:category', userPodcastController.getPodcastsByCategory);
 router.get('/user/season/:season', userPodcastController.getPodcastsBySeason);
 
+
+router.get('/thumbnail/:id', userPodcastController.getPodcastThumbnail);
+
+
 // Route principale pour lister les podcasts
 router.get('/user', userPodcastController.getUserPodcasts);
 
