@@ -113,7 +113,7 @@ exports.getFriendSuggestions = async (req, res) => {
       ville: currentUser.ville,
       statut_compte: 'ACTIF'
     })
-    .limit(10)
+    .limit(30)
     .select('nom prenom email photo_profil ville')
     .lean(); 
 
