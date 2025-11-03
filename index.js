@@ -12,6 +12,7 @@ const rateLimit = require('express-rate-limit');
 const compression = require('compression'); 
 const morgan = require('morgan');
 
+
 // ===== IMPORTS SOCKET.IO =====
 const { Server } = require('socket.io');
 const http = require('http');
@@ -86,6 +87,9 @@ app.use(helmet({
 app.use(compression());
 
 // Rate limiting global 
+
+app.set('trust proxy', 1);
+
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
   max: 1000, 

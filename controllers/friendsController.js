@@ -33,6 +33,7 @@ exports.getFriends = async (req, res) => {
  * @route   GET /api/friends/requests
  * @access  Private
  */
+
 exports.getFriendRequests = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
@@ -44,11 +45,26 @@ exports.getFriendRequests = async (req, res) => {
     .populate('user1', 'nom prenom email photo_profil ville')
     .sort({ created_date: -1 });
     
-    const formattedRequests = requests.map(r => ({
-      friendshipId: r._id,
-      ...r.user1._doc,
-      requestDate: r.created_date
-    }));
+    // Utiliser une méthode plus robuste pour mapper les résultats
+    const formattedRequests = requests.map(r => {
+      // Vérifier que user1 existe avant d'accéder à _doc
+      if (!r.user1) {
+        return {
+          friendshipId: r._id,
+          nom: 'Utilisateur inconnu',
+          prenom: '',
+          email: '',
+          requestDate: r.created_date
+        };
+      }
+
+      // Si user1 existe, utiliser ses données
+      return {
+        friendshipId: r._id,
+        ...r.user1.toObject ? r.user1.toObject() : r.user1._doc || r.user1, // Approche plus robuste
+        requestDate: r.created_date
+      };
+    });
     
     res.status(200).json({
       success: true,
