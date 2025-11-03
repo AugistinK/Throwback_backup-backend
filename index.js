@@ -45,6 +45,8 @@ require('./models/Message');
 require('./models/Bookmark');
 require('./models/Memory');
 
+
+app.set('trust proxy', 1);
 // ===== CRÉATION DU SERVEUR HTTP =====
 const app = express();
 const httpServer = http.createServer(app);
@@ -88,32 +90,26 @@ app.use(compression());
 
 // Rate limiting global 
 
-app.set('trust proxy', 1);
+
 
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: 1000, 
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'Trop de requêtes, veuillez réessayer plus tard',
-    retryAfter: '15 minutes'
-  }
+  keyGenerator: (req) => req.ip,            
+  message: { success: false, message: 'Trop de requêtes, veuillez réessayer plus tard', retryAfter: '15 minutes' }
 });
 app.use(globalLimiter);
 
 // Rate limiting spécifique pour l'authentification 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10, 
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'Trop de tentatives de connexion, veuillez réessayer plus tard',
-    retryAfter: '15 minutes'
-  }
+  keyGenerator: (req) => req.ip,            
+  message: { success: false, message: 'Trop de tentatives de connexion, veuillez réessayer plus tard', retryAfter: '15 minutes' }
 });
 
 // Logging HTTP détaillé

@@ -1,8 +1,11 @@
 // controllers/friendsController.js
+const mongoose = require('mongoose'); 
 const Friendship = require('../models/Friendship');
 const FriendGroup = require('../models/FriendGroup');
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
+
+
 
 /**
  * @desc    Récupérer tous les amis de l'utilisateur connecté
@@ -37,57 +40,36 @@ exports.getFriends = async (req, res) => {
 exports.getFriendRequests = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    
-    // 1. Obtenir d'abord toutes les demandes d'amis
+        
     const requests = await Friendship.find({
       user2: userId,
       status: 'pending'
-    }).sort({ created_date: -1 });
-    
-    // 2. Extraire les IDs des expéditeurs
-    const senderIds = requests.map(r => r.user1);
-    
-    // 3. Faire une requête séparée pour obtenir les données utilisateur
-    const senders = await User.find({
-      _id: { $in: senderIds }
-    }).select('nom prenom email photo_profil ville');
-    
-    // 4. Créer un map pour un accès rapide
-    const senderMap = {};
-    senders.forEach(sender => {
-      senderMap[sender._id.toString()] = {
-        _id: sender._id,
-        nom: sender.nom || 'Nom inconnu',
+    })
+    .sort({ created_date: -1 })
+    .lean();
+
+    const senderIds = requests.map(r => r.user1).filter(Boolean);
+
+    const senders = await User.find({ _id: { $in: senderIds } })
+      .select('nom prenom email photo_profil ville')
+      .lean();
+
+    const senderMap = new Map(senders.map(s => [String(s._id), s]));
+
+    const formattedRequests = requests.map(r => {
+      const sender = senderMap.get(String(r.user1)) || {};
+      return {
+        friendshipId: r._id,
+        _id: sender._id || r.user1,
+        nom: sender.nom || 'Utilisateur inconnu',
         prenom: sender.prenom || '',
         email: sender.email || '',
         photo_profil: sender.photo_profil || null,
-        ville: sender.ville || null
-      };
-    });
-    
-    // 5. Construire le résultat final
-    const formattedRequests = requests.map(r => {
-      const sender = senderMap[r.user1.toString()] || {
-        _id: r.user1,
-        nom: 'Utilisateur inconnu',
-        prenom: '',
-        email: '',
-        photo_profil: null,
-        ville: null
-      };
-      
-      return {
-        friendshipId: r._id,
-        _id: sender._id,
-        nom: sender.nom,
-        prenom: sender.prenom,
-        email: sender.email,
-        photo_profil: sender.photo_profil,
-        ville: sender.ville,
+        ville: sender.ville || null,
         requestDate: r.created_date
       };
     });
-    
+ 
     res.status(200).json({
       success: true,
       data: formattedRequests
@@ -132,12 +114,13 @@ exports.getFriendSuggestions = async (req, res) => {
       statut_compte: 'ACTIF'
     })
     .limit(10)
-    .select('nom prenom email photo_profil ville');
-    
-    const formattedSuggestions = suggestions.map(user => ({
-      ...user._doc,
-      reason: 'Same city'
-    }));
+    .select('nom prenom email photo_profil ville')
+    .lean(); 
+
+const formattedSuggestions = suggestions.map(user => ({
+  ...user,         
+  reason: 'Same city'
+}));
     
     res.status(200).json({
       success: true,
