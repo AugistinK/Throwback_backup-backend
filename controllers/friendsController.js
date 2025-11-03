@@ -188,21 +188,37 @@ exports.sendFriendRequest = async (req, res) => {
  * @route   PUT /api/friends/accept/:friendshipId
  * @access  Private
  */
+
 exports.acceptFriendRequest = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { friendshipId } = req.params;
     
+    console.log(`Accepting friendship ${friendshipId} for user ${userId}`);
+    
+    if (!friendshipId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Friendship ID is required'
+      });
+    }
+
+    // Convertir l'ID en ObjectId si nécessaire
+    const friendshipObjectId = mongoose.Types.ObjectId.isValid(friendshipId)
+      ? new mongoose.Types.ObjectId(friendshipId)
+      : friendshipId;
+      
     const friendship = await Friendship.findOne({
-      _id: friendshipId,
+      _id: friendshipObjectId,
       user2: userId,
       status: 'pending'
     });
     
     if (!friendship) {
+      console.log(`Friendship not found: ${friendshipId} for user ${userId}`);
       return res.status(404).json({
         success: false,
-        message: 'Friend request not found'
+        message: 'Friend request not found or already processed'
       });
     }
     
@@ -211,7 +227,7 @@ exports.acceptFriendRequest = async (req, res) => {
     friendship.modified_by = userId;
     await friendship.save();
     
-    // Log
+    // Log action
     await LogAction.create({
       type_action: 'FRIEND_REQUEST_ACCEPTED',
       description_action: `Friend request accepted from user ${friendship.user1}`,
@@ -221,14 +237,14 @@ exports.acceptFriendRequest = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      message: 'Friend request accepted',
+      message: 'Friend request accepted successfully',
       data: friendship
     });
   } catch (error) {
     console.error('Error in acceptFriendRequest:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de l\'acceptation de la demande'
+      message: 'Error accepting friend request: ' + error.message
     });
   }
 };

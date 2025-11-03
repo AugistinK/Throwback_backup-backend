@@ -664,10 +664,16 @@ app.use('/api/admin/posts', adminPostRoutes);
 
 // ===== ROUTES AMIS ET MESSAGES (AVEC SOCKET.IO) =====
 console.log(" Configuration des routes amis et messages...");
+
 const friendsRoutes = require('./routes/api/friends');
-const messagesRoutes = require('./routes/api/messages');
 app.use('/api/friends', friendsRoutes);
+
+const messagesRoutes = require('./routes/api/messages');
 app.use('/api/messages', messagesRoutes);
+
+const friendGroupsRoutes = require('./routes/api/friendGroups');
+app.use('/api/friends', friendGroupsRoutes);
+
 
 // ===== ROUTES SUPPLÉMENTAIRES =====
 console.log(" Configuration des routes supplémentaires...");

@@ -13,7 +13,6 @@ const createUploadDir = () => {
     fs.mkdirSync(uploadDir, { recursive: true });
     console.log(`Répertoire créé: ${uploadDir}`);
   }
-  
   return uploadDir;
 };
 
