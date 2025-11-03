@@ -1,35 +1,34 @@
-// index.js - VERSION AVEC SOCKET.IO INTÉGRÉ
+// index.js - VERSION AVEC SOCKET.IO 
 require("dotenv").config();
 const express = require("express");
 const session = require('express-session');
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 const path = require("path");
-const jwt = require('jsonwebtoken'); 
+const jwt = require('jsonwebtoken');
 const cors = require('cors');
-const helmet = require('helmet'); 
-const rateLimit = require('express-rate-limit'); 
-const compression = require('compression'); 
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const compression = require('compression');
 const morgan = require('morgan');
 
-
-// ===== IMPORTS SOCKET.IO =====
+// ===== SOCKET.IO =====
 const { Server } = require('socket.io');
 const http = require('http');
 const { initializeSocketIO, getOnlineUsersCount, isUserOnline, getOnlineUsers } = require('./socket/socketHandler');
 
-// ===== IMPORTS DES SERVICES =====
+// ===== SERVICES =====
 const { initStreamScheduler } = require('./services/streamScheduler');
 const { initializeStreamCleanup, healthCheck, getStats } = require('./tasks/streamCleanup');
 const { initPlaylistStatsService } = require('./services/playlistStatsService');
 
-// ===== Import des modèles (ordre important) =====
+// ===== Modèles (ordre important) =====
 require('./models/User');
 require('./models/Token');
 require('./models/LoginAttempt');
 require('./models/LogAction');
-require('./models/Comment');    
-require('./models/Like');       
+require('./models/Comment');
+require('./models/Like');
 require('./models/Playlist');
 require('./models/Video');
 require('./models/StatutUser');
@@ -38,25 +37,22 @@ require('./models/Podcast');
 require('./models/LiveStream');
 require('./models/liveChatMessage');
 require('./models/PlaylistAnalytics');
-require('./models/Post'); 
+require('./models/Post');
 require('./models/FriendGroup');
 require('./models/Friendship');
 require('./models/Message');
 require('./models/Bookmark');
 require('./models/Memory');
 
-
-app.set('trust proxy', 1);
-// ===== CRÉATION DU SERVEUR HTTP =====
+// ===== CRÉATION APP / HTTP / IO =====
 const app = express();
 const httpServer = http.createServer(app);
 
-// ===== CONFIGURATION SOCKET.IO =====
 const io = new Server(httpServer, {
   cors: {
     origin: [
-      process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com',
-      'https://throwback-backup-frontend.onrender.com',
+      process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com',
+      'https://testfrontend.throwback-connect.com',
       'http://localhost:3000'
     ],
     credentials: true,
@@ -66,65 +62,61 @@ const io = new Server(httpServer, {
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 1e6,
-  perMessageDeflate: {
-    threshold: 1024
-  }
+  perMessageDeflate: { threshold: 1024 }
 });
 
-// Rendre io accessible dans les routes
+// Rendre io accessible aux routes
 app.set('io', io);
 
-// ===== VARIABLES GLOBALES POUR LES SERVICES =====
+// 👉 Très important : derrière Nginx/Proxy
+app.set('trust proxy', true);
+
+// ===== VARIABLES SERVICES =====
 let streamCleanupService = null;
 let streamSchedulerService = null;
 let playlistStatsService = null;
 
-// ===== AMÉLIORATIONS DE SÉCURITÉ ET PERFORMANCE =====
+// ===== SÉCURITÉ & PERF =====
 app.use(helmet({
   contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false, 
-  crossOriginResourcePolicy: false 
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false
 }));
-
 app.use(compression());
 
-// Rate limiting global 
-
-
-
+// ===== Rate limiting =====
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,            
+  keyGenerator: (req) => req.ip,
   message: { success: false, message: 'Trop de requêtes, veuillez réessayer plus tard', retryAfter: '15 minutes' }
 });
 app.use(globalLimiter);
 
-// Rate limiting spécifique pour l'authentification 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,            
+  keyGenerator: (req) => req.ip,
   message: { success: false, message: 'Trop de tentatives de connexion, veuillez réessayer plus tard', retryAfter: '15 minutes' }
 });
 
-// Logging HTTP détaillé
+// ===== Logs HTTP =====
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 } else {
   app.use(morgan('combined'));
 }
 
-// ===== Middleware de base =====
+// ===== Parsers/Cookies =====
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
-// ===== Configuration CORS =====
+// ===== CORS =====
 const corsOptions = {
   origin: [
     process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com',
@@ -134,98 +126,99 @@ const corsOptions = {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
+    'Content-Type',
+    'Authorization',
     'X-Requested-With',
     'Accept',
     'Origin'
   ],
   exposedHeaders: ['Content-Type', 'Content-Length']
 };
-
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-// ===== Configuration de session =====
+// ===== Sessions (MongoStore en prod) =====
+const MongoStore = require('connect-mongo');
 app.use(session({
   secret: process.env.SESSION_SECRET || 'throwback-secret-key',
   resave: false,
   saveUninitialized: false,
-  cookie: { 
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGO_URI,
+    ttl: 60 * 60 * 24,
+    autoRemove: 'interval',
+    autoRemoveInterval: 10
+  }),
+  cookie: {
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 1000 * 60 * 60 * 24, 
-    httpOnly: true
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 24,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
 
-// ===== Configuration du moteur de template =====
+// ===== Vues =====
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
-// ===== Fichiers statiques =====
+// ===== Statics (avec CORP) =====
 app.use('/uploads', (req, res, next) => {
   res.header('Cross-Origin-Resource-Policy', 'cross-origin');
   res.header('Access-Control-Allow-Origin', '*');
   next();
 });
-
 app.use(express.static(path.join(__dirname, "public"), {
-  setHeaders: (res) => {
-    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-  }
+  setHeaders: (res) => res.header('Cross-Origin-Resource-Policy', 'cross-origin')
 }));
-
 app.use('/uploads', express.static(path.join(__dirname, "uploads"), {
-  setHeaders: (res) => {
-    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-  }
+  setHeaders: (res) => res.header('Cross-Origin-Resource-Policy', 'cross-origin')
 }));
 
-// ===== Logging des requêtes amélioré =====
+// ===== Logging custom =====
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${req.method} ${req.url}`);
-  
-  if (req.url.includes('/shorts') || req.url.includes('/like') || req.url.includes('/memories') || 
-      req.url.includes('/public') || req.url.includes('/livestreams') || req.url.includes('/livechat') ||
-      req.url.includes('/health') || req.url.includes('/playlists') || req.url.includes('/friends') || 
-      req.url.includes('/messages')) {  
+  if (
+    req.url.includes('/shorts') || req.url.includes('/like') || req.url.includes('/memories') ||
+    req.url.includes('/public') || req.url.includes('/livestreams') || req.url.includes('/livechat') ||
+    req.url.includes('/health') || req.url.includes('/playlists') || req.url.includes('/friends') ||
+    req.url.includes('/messages')
+  ) {
     console.log(` Route importante détectée: ${req.method} ${req.url}`);
     if (req.body && Object.keys(req.body).length > 0) {
       console.log(' Body:', req.body);
     }
   }
-  
   next();
 });
 
-// ===== MongoDB Connection =====
+// ===== MongoDB =====
+mongoose.set('strictQuery', true); // compat Mongoose 7+
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(async () => {
+  useUnifiedTopology: true
+}).then(async () => {
   console.log(" Connexion MongoDB réussie");
   console.log(" Base de données:", mongoose.connection.db.databaseName);
-  
-  // ===== INITIALISATION SOCKET.IO =====
+
+  // Socket.IO
   try {
     initializeSocketIO(io);
     console.log(" Socket.IO initialisé avec succès");
     console.log(" Utilisateurs en ligne: 0");
   } catch (error) {
-    console.error(" Erreur lors de l'initialisation de Socket.IO:", error);
+    console.error(" Erreur init Socket.IO:", error);
   }
-  
-  // Initialisation du service de planification des streams
+
+  // Stream scheduler
   try {
     streamSchedulerService = initStreamScheduler();
     console.log(" Service de planification des livestreams initialisé");
   } catch (error) {
-    console.error(" Erreur lors de l'initialisation du service de planification des livestreams:", error);
+    console.error(" Erreur init scheduler:", error);
   }
 
-  // ===== INITIALISATION DU SYSTÈME DE NETTOYAGE AUTOMATIQUE =====
+  // Cleanup automatique
   if (process.env.ENABLE_STREAM_CLEANUP !== 'false') {
     try {
       console.log(" Initialisation du système de nettoyage automatique des streams...");
@@ -236,53 +229,46 @@ mongoose.connect(process.env.MONGO_URI, {
       console.log("    Statistiques: toutes les 6 heures");
       console.log("     Maintenance: tous les jours à 3h00");
     } catch (error) {
-      console.error(" Erreur lors de l'initialisation du système de nettoyage:", error);
+      console.error(" Erreur init cleanup:", error);
     }
   } else {
     console.log("  Système de nettoyage automatique désactivé par variable d'environnement");
   }
 
-  // ===== INITIALISATION DU SERVICE DE STATISTIQUES PLAYLISTS =====
+  // Playlist stats
   if (process.env.ENABLE_PLAYLIST_STATS !== 'false') {
     try {
       console.log(" Initialisation du service de statistiques des playlists...");
       playlistStatsService = initPlaylistStatsService();
-      
       setTimeout(() => {
         if (playlistStatsService.start()) {
           console.log(" Service de statistiques des playlists démarré avec succès");
-          console.log(" Tâches de statistiques playlists actives:");
-          console.log("    Calcul des tendances: toutes les 3 heures");
-          console.log("   Mise à jour des lectures: toutes les 30 minutes");
-          console.log("    Génération des recommandations: tous les jours à 4h00");
+          console.log(" Tâches actives: tendances 3h, lectures 30m, reco 4h00");
         } else {
           console.error(" Échec du démarrage du service de statistiques playlists");
         }
       }, 5000);
     } catch (error) {
-      console.error(" Erreur lors de l'initialisation du service de statistiques playlists:", error);
+      console.error(" Erreur init playlist stats:", error);
     }
   } else {
     console.log("  Service de statistiques des playlists désactivé par variable d'environnement");
   }
-})
-.catch((err) => {
+}).catch((err) => {
   console.error(" Erreur MongoDB:", err);
   process.exit(1);
 });
 
-// ===== Middleware d'authentification =====
+// ===== Auth middlewares =====
 const extractUser = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     let token;
-    
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.split(' ')[1];
-    } else if (req.cookies && req.cookies.token) { 
+    } else if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
     }
-    
     if (token) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -312,38 +298,32 @@ const protect = async (req, res, next) => {
   next();
 };
 
-// Appliquer le middleware d'extraction d'utilisateur
 app.use(extractUser);
 
-// ===== Test des contrôleurs =====
+// ===== Controllers (chargement sécurisé) =====
 let authController, memoryController, videoController, publicVideoController;
 let userLiveStreamController, liveStreamController, liveChatController;
-let playlistController; 
+let playlistController;
 
 try {
   authController = require("./controllers/authController");
   memoryController = require('./controllers/memoryController');
   videoController = require('./controllers/videoController');
   publicVideoController = require('./controllers/publicVideoController');
-  
   userLiveStreamController = require('./controllers/userLiveStreamController');
   liveStreamController = require('./controllers/liveStreamController');
   liveChatController = require('./controllers/liveChatController');
   playlistController = require('./controllers/playlistController');
-  
   console.log(" Tous les contrôleurs chargés avec succès");
 } catch (error) {
   console.error(" Erreur lors du chargement des contrôleurs:", error);
 }
 
-// ===== ROUTES DE SANTÉ ET MONITORING =====
-console.log("\n🏥 Configuration des routes de santé...");
-
-// Route de santé générale (avec Socket.IO)
+// ===== Health & monitoring =====
+console.log("\n Configuration des routes de santé...");
 app.get('/api/health', (req, res) => {
   const uptime = process.uptime();
   const memUsage = process.memoryUsage();
-  
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -373,117 +353,63 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Route pour obtenir le nombre d'utilisateurs en ligne
 app.get('/api/status/online-users', (req, res) => {
-  res.json({
-    success: true,
-    count: getOnlineUsersCount(),
-    timestamp: new Date().toISOString()
-  });
+  res.json({ success: true, count: getOnlineUsersCount(), timestamp: new Date().toISOString() });
 });
 
-// Route de santé spécifique pour les streams
 app.get('/api/health/streams', (req, res) => {
   try {
     if (!streamCleanupService) {
-      return res.status(503).json({
-        status: 'unavailable',
-        message: 'Stream cleanup service not initialized'
-      });
+      return res.status(503).json({ status: 'unavailable', message: 'Stream cleanup service not initialized' });
     }
-    
     const health = healthCheck();
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'warning' ? 200 : 500;
     res.status(statusCode).json(health);
   } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Health check failed',
-      error: error.message
-    });
+    res.status(500).json({ status: 'error', message: 'Health check failed', error: error.message });
   }
 });
 
-// Route de santé spécifique pour les playlists
 app.get('/api/health/playlists', (req, res) => {
   try {
     if (!playlistStatsService) {
-      return res.status(503).json({
-        status: 'unavailable',
-        message: 'Playlist stats service not initialized'
-      });
+      return res.status(503).json({ status: 'unavailable', message: 'Playlist stats service not initialized' });
     }
-    
     const health = playlistStatsService.healthCheck();
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'warning' ? 200 : 500;
     res.status(statusCode).json(health);
   } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Playlist health check failed',
-      error: error.message
-    });
+    res.status(500).json({ status: 'error', message: 'Playlist health check failed', error: error.message });
   }
 });
 
-// Route de statistiques des tâches
 app.get('/api/admin/stream-tasks/status', protect, (req, res) => {
   if (!streamCleanupService) {
-    return res.status(503).json({
-      success: false,
-      message: 'Stream cleanup service not initialized'
-    });
+    return res.status(503).json({ success: false, message: 'Stream cleanup service not initialized' });
   }
-  
   try {
     const stats = getStats();
     const health = healthCheck();
-    
-    res.json({
-      success: true,
-      data: {
-        stats,
-        health,
-        tasksInitialized: true
-      }
-    });
+    res.json({ success: true, data: { stats, health, tasksInitialized: true } });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error getting task status',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Error getting task status', error: error.message });
   }
 });
 
-// Route pour déclencher un nettoyage manuel
 app.post('/api/admin/stream-tasks/cleanup', protect, async (req, res) => {
   if (!streamCleanupService) {
-    return res.status(503).json({
-      success: false,
-      message: 'Stream cleanup service not initialized'
-    });
+    return res.status(503).json({ success: false, message: 'Stream cleanup service not initialized' });
   }
-  
   try {
     const result = await streamCleanupService.runManualCleanup();
-    res.json({
-      success: true,
-      message: 'Manual cleanup completed',
-      data: result
-    });
+    res.json({ success: true, message: 'Manual cleanup completed', data: result });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error running manual cleanup',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Error running manual cleanup', error: error.message });
   }
 });
 
-// ===== ROUTES D'AUTHENTIFICATION =====
-console.log("\n🔐 Configuration des routes d'authentification...");
-
+// ===== Auth =====
+console.log("\n Configuration des routes d'authentification...");
 app.post('/api/auth/login', authLimiter, authController.login);
 app.post('/api/auth/register', authLimiter, authController.register);
 app.post('/api/auth/forgot-password', authLimiter, authController.forgotPassword);
@@ -495,84 +421,59 @@ app.put('/api/auth/change-password', protect, authController.changePassword);
 app.post('/api/auth/logout', protect, authController.logout);
 app.get('/api/auth/me', protect, authController.getMe);
 
-// ===== ROUTES PUBLIQUES SPÉCIFIQUES =====
+// ===== Routes publiques =====
 console.log("🌐 Configuration des routes publiques...");
-
 const podcastRoutes = require('./routes/api/podcastRoutes');
 app.use('/api/podcasts', podcastRoutes);
 
 app.get('/api/public/videos/trending', (req, res, next) => {
-  if (publicVideoController && publicVideoController.getTrendingVideos) {
-    publicVideoController.getTrendingVideos(req, res, next);
-  } else {
-    res.json({ success: true, data: [], message: "Trending videos service not available" });
-  }
+  if (publicVideoController?.getTrendingVideos) return publicVideoController.getTrendingVideos(req, res, next);
+  res.json({ success: true, data: [], message: "Trending videos service not available" });
 });
 
 app.get('/api/public/videos/search', (req, res, next) => {
-  if (publicVideoController && publicVideoController.searchVideos) {
-    publicVideoController.searchVideos(req, res, next);
-  } else {
-    res.json({ success: true, data: [], query: req.query.q, pagination: { page: 1, limit: 12, total: 0, totalPages: 0 } });
-  }
+  if (publicVideoController?.searchVideos) return publicVideoController.searchVideos(req, res, next);
+  res.json({ success: true, data: [], query: req.query.q, pagination: { page: 1, limit: 12, total: 0, totalPages: 0 } });
 });
 
 app.get('/api/public/videos', (req, res, next) => {
-  if (publicVideoController && publicVideoController.getPublicVideos) {
-    publicVideoController.getPublicVideos(req, res, next);
-  } else if (videoController && videoController.listPublicVideos) {
-    videoController.listPublicVideos(req, res, next);
-  } else {
-    res.status(501).json({ success: false, message: "Service de vidéos publiques temporairement indisponible" });
-  }
+  if (publicVideoController?.getPublicVideos) return publicVideoController.getPublicVideos(req, res, next);
+  if (videoController?.listPublicVideos) return videoController.listPublicVideos(req, res, next);
+  res.status(501).json({ success: false, message: "Service de vidéos publiques temporairement indisponible" });
 });
 
 app.get('/api/public/videos/:id/memories', (req, res, next) => {
-  if (memoryController && memoryController.getVideoMemories) {
-    memoryController.getVideoMemories(req, res, next);
-  } else {
-    res.json({ success: true, data: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0 } });
-  }
+  if (memoryController?.getVideoMemories) return memoryController.getVideoMemories(req, res, next);
+  res.json({ success: true, data: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0 } });
 });
 
 app.post('/api/public/videos/:id/memories', protect, (req, res, next) => {
-  if (memoryController && memoryController.addMemory) {
-    memoryController.addMemory(req, res, next);
-  } else {
-    res.status(501).json({ success: false, message: "Service de souvenirs temporairement indisponible" });
-  }
+  if (memoryController?.addMemory) return memoryController.addMemory(req, res, next);
+  res.status(501).json({ success: false, message: "Service de souvenirs temporairement indisponible" });
 });
 
 app.post('/api/public/videos/:id/like', protect, (req, res, next) => {
-  if (publicVideoController && publicVideoController.likeVideo) {
-    publicVideoController.likeVideo(req, res, next);
-  } else {
-    res.json({ success: true, message: "Like enregistré (simulation)", data: { liked: true, disliked: false, likes: Math.floor(Math.random() * 100) + 1, dislikes: 0 } });
-  }
+  if (publicVideoController?.likeVideo) return publicVideoController.likeVideo(req, res, next);
+  res.json({ success: true, message: "Like enregistré (simulation)", data: { liked: true, disliked: false, likes: Math.floor(Math.random() * 100) + 1, dislikes: 0 } });
 });
 
-app.post('/api/public/videos/:id/share', protect, (req, res, next) => {
+app.post('/api/public/videos/:id/share', protect, (req, res) => {
   res.json({ success: true, message: "Partage enregistré avec succès" });
 });
 
 app.get('/api/public/videos/:id', (req, res, next) => {
-  if (publicVideoController && publicVideoController.getVideoById) {
-    publicVideoController.getVideoById(req, res, next);
-  } else if (videoController && videoController.getPublicVideo) {
-    videoController.getPublicVideo(req, res, next);
-  } else {
-    res.status(501).json({ success: false, message: "Service de vidéo publique temporairement indisponible" });
-  }
+  if (publicVideoController?.getVideoById) return publicVideoController.getVideoById(req, res, next);
+  if (videoController?.getPublicVideo) return videoController.getPublicVideo(req, res, next);
+  res.status(501).json({ success: false, message: "Service de vidéo publique temporairement indisponible" });
 });
 
-// ===== ROUTES VIDÉO PRINCIPALES =====
+// ===== Vidéos =====
 console.log("🎬 Configuration des routes vidéo...");
 const videoRoutes = require('./routes/api/videoRoutes');
 app.use('/api/videos', videoRoutes);
 
-// ===== ROUTES LIVESTREAM =====
+// ===== Livestream =====
 console.log("📺 Configuration des routes LiveThrowback...");
-
 try {
   const adminLiveStreamRoutes = require('./routes/api/liveStreamRoutes');
   app.use('/api/admin/livestreams', adminLiveStreamRoutes);
@@ -581,7 +482,6 @@ try {
 } catch (error) {
   console.warn("  Routes admin livestreams non disponibles:", error.message);
 }
-
 try {
   const userLiveStreamsRoutes = require('./routes/api/userLivestreams');
   app.use('/api/user/livestreams', userLiveStreamsRoutes);
@@ -589,7 +489,6 @@ try {
 } catch (error) {
   console.warn("  Routes utilisateur livestreams non disponibles:", error.message);
 }
-
 try {
   const liveStreamRoutes = require('./routes/api/liveStreamRoutes');
   app.use('/api/livestreams', liveStreamRoutes);
@@ -598,8 +497,8 @@ try {
   console.warn("  Routes principales livestreams non disponibles:", error.message);
 }
 
-// ===== ROUTES DE CHAT EN DIRECT =====
-console.log("💬 Configuration des routes de chat en direct...");
+// ===== Live Chat =====
+console.log(" Configuration des routes de chat en direct...");
 try {
   const liveChatRoutes = require('./routes/api/liveChat');
   app.use('/api/livechat', liveChatRoutes);
@@ -608,7 +507,7 @@ try {
   console.warn("  Routes de chat en direct non disponibles:", error.message);
 }
 
-// ===== ROUTES PLAYLISTS =====
+// ===== Playlists =====
 console.log(" Configuration des routes de playlists...");
 const playlistRoutes = require('./routes/api/playlistRoutes');
 app.use('/api/playlists', playlistRoutes);
@@ -622,39 +521,27 @@ try {
 }
 
 app.get('/api/public/playlists/trending', (req, res, next) => {
-  if (playlistController && playlistController.getTrendingPlaylists) {
-    playlistController.getTrendingPlaylists(req, res, next);
-  } else {
-    res.json({ success: true, data: [], message: "Trending playlists service not available" });
-  }
+  if (playlistController?.getTrendingPlaylists) return playlistController.getTrendingPlaylists(req, res, next);
+  res.json({ success: true, data: [], message: "Trending playlists service not available" });
 });
 
 app.get('/api/public/playlists/search', (req, res, next) => {
-  if (playlistController && playlistController.searchPlaylists) {
-    playlistController.searchPlaylists(req, res, next);
-  } else {
-    res.json({ success: true, data: [], query: req.query.q, pagination: { page: 1, limit: 12, total: 0, totalPages: 0 } });
-  }
+  if (playlistController?.searchPlaylists) return playlistController.searchPlaylists(req, res, next);
+  res.json({ success: true, data: [], query: req.query.q, pagination: { page: 1, limit: 12, total: 0, totalPages: 0 } });
 });
 
 app.get('/api/public/playlists', (req, res, next) => {
-  if (playlistController && playlistController.getPublicPlaylists) {
-    playlistController.getPublicPlaylists(req, res, next);
-  } else {
-    res.json({ success: true, data: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0 } });
-  }
+  if (playlistController?.getPublicPlaylists) return playlistController.getPublicPlaylists(req, res, next);
+  res.json({ success: true, data: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0 } });
 });
 
 app.get('/api/public/playlists/:id', (req, res, next) => {
-  if (playlistController && playlistController.getPublicPlaylistById) {
-    playlistController.getPublicPlaylistById(req, res, next);
-  } else {
-    res.status(501).json({ success: false, message: "Service de playlist publique temporairement indisponible" });
-  }
+  if (playlistController?.getPublicPlaylistById) return playlistController.getPublicPlaylistById(req, res, next);
+  res.status(501).json({ success: false, message: "Service de playlist publique temporairement indisponible" });
 });
 
-// ===== ROUTES POSTS ET COMMENTAIRES =====
-console.log("📝 Configuration des routes posts et commentaires...");
+// ===== Posts & Comments =====
+console.log(" Configuration des routes posts et commentaires...");
 const postRoutes = require('./routes/api/posts');
 app.use('/api/posts', postRoutes);
 app.use('/api/comments', require('./routes/api/comments'));
@@ -662,22 +549,16 @@ app.use('/api/comments', require('./routes/api/comments'));
 const adminPostRoutes = require('./routes/api/adminPostRoutes');
 app.use('/api/admin/posts', adminPostRoutes);
 
-// ===== ROUTES AMIS ET MESSAGES (AVEC SOCKET.IO) =====
+// ===== Friends & Messages =====
 console.log(" Configuration des routes amis et messages...");
-
 const friendsRoutes = require('./routes/api/friends');
 app.use('/api/friends', friendsRoutes);
 
 const messagesRoutes = require('./routes/api/messages');
 app.use('/api/messages', messagesRoutes);
 
-// const friendGroupsRoutes = require('./routes/api/friendGroups');
-// app.use('/api/friends', friendGroupsRoutes);
-
-
-// ===== ROUTES SUPPLÉMENTAIRES =====
+// ===== Supplémentaires =====
 console.log(" Configuration des routes supplémentaires...");
-
 app.use('/api/users', require('./routes/api/userProfile'));
 
 const adminApiRoutes = require('./routes/api/admin');
@@ -723,7 +604,6 @@ try {
   console.log(" Routes video-info chargées avec succès");
 } catch (error) {
   console.warn("  Routes video-info non disponibles:", error.message);
-  
   app.get('/api/video-info', (req, res) => {
     const { url, id, source } = req.query;
     if (!url || !id || !source) {
@@ -753,25 +633,22 @@ try {
         title: 'ThrowBack API',
         version: '2.5.0',
         description: 'API de la plateforme ThrowBack avec Socket.IO',
-        contact: {
-          name: 'Équipe ThrowBack',
-          email: 'contact@throwback.com'
-        }
+        contact: { name: 'Équipe ThrowBack', email: 'contact@throwback.com' }
       },
-      servers: [{ url: process.env.BACKEND_URL || 'http://localhost:4000', description: 'Serveur principal' }]
+      servers: [{ url: process.env.BACKEND_URL || 'http://localhost:5000', description: 'Serveur principal' }]
     },
     apis: ['./routes/api/*.js', './routes/api/admin/*.js', './controllers/*.js']
   };
 
   const swaggerDocs = swaggerJsDoc(swaggerOptions);
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
-  console.log("📚 Documentation Swagger disponible sur /api-docs");
+  console.log(" Documentation Swagger disponible sur /api-docs");
 } catch (error) {
   console.warn("  Documentation Swagger non disponible:", error.message);
 }
 
-// ===== ROUTES DE RECHERCHE =====
-console.log("🔍 Configuration des routes de recherche...");
+// ===== Recherche =====
+console.log(" Configuration des routes de recherche...");
 try {
   const searchController = require('./controllers/searchController');
   app.get('/api/search', searchController.globalSearch);
@@ -785,17 +662,14 @@ try {
   console.warn("  Routes de recherche non disponibles:", error.message);
 }
 
-// ===== ROUTES DE TEST =====
+// ===== Tests =====
 app.get('/api/test', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'API ThrowBack fonctionne avec Socket.IO!',
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV || 'development',
     user: req.user ? `${req.user.prenom} ${req.user.nom}` : 'Non connecté',
-    socketio: {
-      status: 'active',
-      onlineUsers: getOnlineUsersCount()
-    },
+    socketio: { status: 'active', onlineUsers: getOnlineUsersCount() },
     services: {
       streamCleanup: streamCleanupService ? 'active' : 'inactive',
       streamScheduler: streamSchedulerService ? 'active' : 'inactive',
@@ -810,7 +684,6 @@ app.get('/api/test/db', async (req, res) => {
     const states = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' };
     const User = mongoose.model('User');
     const userCount = await User.countDocuments();
-    
     res.json({
       mongodb: {
         status: states[state],
@@ -846,7 +719,7 @@ app.get('/api/test/socketio', (req, res) => {
   });
 });
 
-// ===== ROUTES DE FALLBACK =====
+// ===== Fallback root =====
 app.get("/", (req, res) => {
   res.json({
     message: "ThrowBack API Server with Socket.IO",
@@ -854,14 +727,14 @@ app.get("/", (req, res) => {
     status: "Opérationnel",
     newFeatures: [
       " Socket.IO intégré pour le temps réel",
-      "💬 Chat en temps réel",
-      "🔔 Notifications instantanées",
+      " Chat en temps réel",
+      " Notifications instantanées",
       " Statut en ligne/hors ligne",
-      "📝 Indicateurs de saisie",
+      " Indicateurs de saisie",
       " Module Playlists complet",
       " Statistiques avancées",
-      "🔒 Sécurité renforcée",
-      "📚 Documentation API intégrée"
+      " Sécurité renforcée",
+      " Documentation API intégrée"
     ],
     endpoints: {
       auth: "/api/auth/*",
@@ -875,32 +748,27 @@ app.get("/", (req, res) => {
       docs: "/api-docs"
     },
     services: {
-      socketio: '🟢 Active',
-      streamCleanup: streamCleanupService ? '🟢 Active' : '🔴 Inactive',
-      streamScheduler: streamSchedulerService ? '🟢 Active' : '🔴 Inactive',
-      playlistStats: playlistStatsService ? '🟢 Active' : '🔴 Inactive',
-      database: mongoose.connection.readyState === 1 ? '🟢 Connected' : '🔴 Disconnected'
+      socketio: ' Active',
+      streamCleanup: streamCleanupService ? ' Active' : ' Inactive',
+      streamScheduler: streamSchedulerService ? ' Active' : ' Inactive',
+      playlistStats: playlistStatsService ? ' Active' : ' Inactive',
+      database: mongoose.connection.readyState === 1 ? ' Connected' : ' Disconnected'
     },
-    socketio: {
-      onlineUsers: getOnlineUsersCount(),
-      transport: 'websocket/polling'
-    },
+    socketio: { onlineUsers: getOnlineUsersCount(), transport: 'websocket/polling' },
     timestamp: new Date().toISOString()
   });
 });
 
 app.get("/login", (req, res) => {
-  res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com'}/login`);
+  res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login`);
 });
-
 app.get("/register", (req, res) => {
-  res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com'}/register`);
+  res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/register`);
 });
 
-// ===== GESTION DES ERREURS 404 =====
+// ===== 404 =====
 app.use((req, res, next) => {
   console.log(` 404 ERROR: ${req.method} ${req.path}`);
-  
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({
       success: false,
@@ -918,71 +786,46 @@ app.use((req, res, next) => {
       ]
     });
   }
-  
-  res.status(404).json({
-    error: "Page non trouvée",
-    message: `La route ${req.path} n'existe pas`
-  });
+  res.status(404).json({ error: "Page non trouvée", message: `La route ${req.path} n'existe pas` });
 });
 
-// ===== GESTION DES ERREURS 500 =====
+// ===== 500 =====
 app.use((err, req, res, next) => {
   console.error(" Erreur serveur:", err);
-  
   if (process.env.NODE_ENV === 'development') {
     console.error(" Stack trace:", err.stack);
   }
-  
   const response = {
     success: false,
     message: "Une erreur est survenue sur le serveur",
     timestamp: new Date().toISOString()
   };
-  
   if (process.env.NODE_ENV === 'development') {
-    response.error = {
-      message: err.message,
-      stack: err.stack
-    };
+    response.error = { message: err.message, stack: err.stack };
   }
-  
   res.status(500).json(response);
 });
 
-// ===== GESTION DE L'ARRÊT GRACIEUX =====
+// ===== Arrêt gracieux =====
 const gracefulShutdown = (signal) => {
   console.log(`\n  Signal ${signal} reçu. Arrêt gracieux en cours...`);
-  
   httpServer.close(() => {
     console.log(' Serveur HTTP fermé');
-    
-    // Fermer Socket.IO
     io.close(() => {
       console.log(' Socket.IO fermé');
-      
-      // Arrêter les services
-      if (streamCleanupService) {
-        console.log(' Arrêt du service de nettoyage des streams...');
-      }
-      
-      if (streamSchedulerService) {
-        console.log(' Arrêt du service de planification des streams...');
-      }
-      
+      if (streamCleanupService) console.log(' Arrêt du service de nettoyage des streams...');
+      if (streamSchedulerService) console.log(' Arrêt du service de planification des streams...');
       if (playlistStatsService) {
         console.log(' Arrêt du service de statistiques des playlists...');
         playlistStatsService.shutdown();
       }
-      
-      // Fermer MongoDB
       mongoose.connection.close(() => {
         console.log(' Connexion MongoDB fermée');
-        console.log('👋 Arrêt complet du serveur ThrowBack');
+        console.log(' Arrêt complet du serveur ThrowBack');
         process.exit(0);
       });
     });
   });
-  
   setTimeout(() => {
     console.error('  Arrêt forcé après timeout');
     process.exit(1);
@@ -991,42 +834,38 @@ const gracefulShutdown = (signal) => {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
 process.on('unhandledRejection', (err) => {
   console.error(' Unhandled Promise Rejection:', err);
-  if (process.env.NODE_ENV === 'production') {
-    gracefulShutdown('unhandledRejection');
-  }
+  if (process.env.NODE_ENV === 'production') gracefulShutdown('unhandledRejection');
 });
-
 process.on('uncaughtException', (err) => {
   console.error(' Uncaught Exception:', err);
   gracefulShutdown('uncaughtException');
 });
 
-// ===== LANCEMENT DU SERVEUR =====
-const PORT = process.env.PORT || 4000;
+// ===== LANCEMENT =====
+const PORT = process.env.PORT || 5000; //  Aligne avec Nginx (voir plus bas)
 httpServer.listen(PORT, () => {
-  console.log(`\n🎉 ========================================`);
+  console.log(`\n ========================================`);
   console.log(`  SERVEUR THROWBACK AVEC SOCKET.IO ACTIF!`);
-  console.log(`🎉 ========================================`);
-  console.log(`  🌐 URL: http://localhost:${PORT}`);
+  console.log(` ========================================`);
+  console.log(`   URL: http://localhost:${PORT}`);
   console.log(`   Socket.IO: Active`);
   console.log(`   Online Users: ${getOnlineUsersCount()}`);
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`  🎨 Frontend: ${process.env.FRONTEND_URL || 'https://throwback-backup-frontend.onrender.com'}`);
-  console.log(`  📚 Documentation: http://localhost:${PORT}/api-docs`);
-  console.log(`\n  🚀 ROUTES SOCKET.IO:`);
+  console.log(`   Frontend: ${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}`);
+  console.log(`   Documentation: http://localhost:${PORT}/api-docs`);
+  console.log(`\n   ROUTES SOCKET.IO:`);
   console.log(`     WebSocket: ws://localhost:${PORT}`);
   console.log(`     GET /api/status/online-users`);
-  console.log(`    🏥 GET /api/health (inclut status Socket.IO)`);
-  console.log(`    🧪 GET /api/test/socketio (test Socket.IO)`);
-  console.log(`\n  💬 ÉVÉNEMENTS SOCKET.IO:`);
-  console.log(`    ✓ send-message (Envoyer un message)`);
-  console.log(`    ✓ typing-start / typing-stop (Indicateur de saisie)`);
-  console.log(`    ✓ friend-request-sent (Demande d'ami)`);
-  console.log(`    ✓ join-livestream (Rejoindre un live)`);
-  console.log(`    ✓ online-users (Liste des utilisateurs en ligne)`);
+  console.log(`     GET /api/health (inclut status Socket.IO)`);
+  console.log(`     GET /api/test/socketio (test Socket.IO)`);
+  console.log(`\n   ÉVÉNEMENTS SOCKET.IO:`);
+  console.log(`    send-message (Envoyer un message)`);
+  console.log(`    typing-start / typing-stop (Indicateur de saisie)`);
+  console.log(`    friend-request-sent (Demande d'ami)`);
+  console.log(`    join-livestream (Rejoindre un live)`);
+  console.log(`    online-users (Liste des utilisateurs en ligne)`);
   console.log(`\n   THROWBACK AVEC SOCKET.IO EST PRÊT! \n`);
 });
 
