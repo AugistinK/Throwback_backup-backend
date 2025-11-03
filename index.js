@@ -675,8 +675,8 @@ app.use('/api/friends', friendsRoutes);
 const messagesRoutes = require('./routes/api/messages');
 app.use('/api/messages', messagesRoutes);
 
-const friendGroupsRoutes = require('./routes/api/friendGroups');
-app.use('/api/friends', friendGroupsRoutes);
+// const friendGroupsRoutes = require('./routes/api/friendGroups');
+// app.use('/api/friends', friendGroupsRoutes);
 
 
 // ===== ROUTES SUPPLÉMENTAIRES =====
