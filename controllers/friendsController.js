@@ -45,51 +45,35 @@ exports.getFriendRequests = async (req, res) => {
     .populate('user1', 'nom prenom email photo_profil ville')
     .sort({ created_date: -1 });
     
-    // Approche sécurisée pour formater les résultats
+    // Solution simplifiée et robuste
     const formattedRequests = requests.map(r => {
-      // Si user1 n'existe pas ou est null
+      // Créer un objet de base avec l'ID de la relation d'amitié
+      const result = {
+        friendshipId: r._id,
+        requestDate: r.created_date
+      };
+      
+      // Si user1 n'existe pas, utiliser des valeurs par défaut
       if (!r.user1) {
         return {
-          friendshipId: r._id,
+          ...result,
           nom: 'Utilisateur inconnu',
           prenom: '',
           email: '',
-          requestDate: r.created_date
-        };
-      }
-
-      // Récupérer les données de manière sécurisée
-      let userData;
-      
-      try {
-        // Essayer d'abord toObject si c'est une fonction
-        if (typeof r.user1.toObject === 'function') {
-          userData = r.user1.toObject();
-        } 
-        // Ensuite essayer _doc
-        else if (r.user1._doc) {
-          userData = r.user1._doc;
-        } 
-        // Sinon utiliser l'objet directement
-        else {
-          userData = r.user1;
-        }
-      } catch (err) {
-        console.log('Error formatting user data:', err);
-        // Fallback en cas d'erreur
-        userData = {
-          nom: r.user1.nom || 'Nom inconnu',
-          prenom: r.user1.prenom || '',
-          email: r.user1.email || '',
-          photo_profil: r.user1.photo_profil || null,
-          ville: r.user1.ville || null
+          photo_profil: null,
+          ville: null
         };
       }
       
+      // Extraire manuellement chaque propriété pour éviter les erreurs
       return {
-        friendshipId: r._id,
-        ...userData,
-        requestDate: r.created_date
+        ...result,
+        nom: r.user1.nom || 'Nom inconnu',
+        prenom: r.user1.prenom || '',
+        email: r.user1.email || '',
+        photo_profil: r.user1.photo_profil || null,
+        ville: r.user1.ville || null,
+        _id: r.user1._id || null // Inclure l'ID de l'utilisateur si nécessaire
       };
     });
     
