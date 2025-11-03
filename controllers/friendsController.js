@@ -38,42 +38,53 @@ exports.getFriendRequests = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     
+    // 1. Obtenir d'abord toutes les demandes d'amis
     const requests = await Friendship.find({
       user2: userId,
       status: 'pending'
-    })
-    .populate('user1', 'nom prenom email photo_profil ville')
-    .sort({ created_date: -1 });
+    }).sort({ created_date: -1 });
     
-    // Solution simplifiée et robuste
+    // 2. Extraire les IDs des expéditeurs
+    const senderIds = requests.map(r => r.user1);
+    
+    // 3. Faire une requête séparée pour obtenir les données utilisateur
+    const senders = await User.find({
+      _id: { $in: senderIds }
+    }).select('nom prenom email photo_profil ville');
+    
+    // 4. Créer un map pour un accès rapide
+    const senderMap = {};
+    senders.forEach(sender => {
+      senderMap[sender._id.toString()] = {
+        _id: sender._id,
+        nom: sender.nom || 'Nom inconnu',
+        prenom: sender.prenom || '',
+        email: sender.email || '',
+        photo_profil: sender.photo_profil || null,
+        ville: sender.ville || null
+      };
+    });
+    
+    // 5. Construire le résultat final
     const formattedRequests = requests.map(r => {
-      // Créer un objet de base avec l'ID de la relation d'amitié
-      const result = {
-        friendshipId: r._id,
-        requestDate: r.created_date
+      const sender = senderMap[r.user1.toString()] || {
+        _id: r.user1,
+        nom: 'Utilisateur inconnu',
+        prenom: '',
+        email: '',
+        photo_profil: null,
+        ville: null
       };
       
-      // Si user1 n'existe pas, utiliser des valeurs par défaut
-      if (!r.user1) {
-        return {
-          ...result,
-          nom: 'Utilisateur inconnu',
-          prenom: '',
-          email: '',
-          photo_profil: null,
-          ville: null
-        };
-      }
-      
-      // Extraire manuellement chaque propriété pour éviter les erreurs
       return {
-        ...result,
-        nom: r.user1.nom || 'Nom inconnu',
-        prenom: r.user1.prenom || '',
-        email: r.user1.email || '',
-        photo_profil: r.user1.photo_profil || null,
-        ville: r.user1.ville || null,
-        _id: r.user1._id || null // Inclure l'ID de l'utilisateur si nécessaire
+        friendshipId: r._id,
+        _id: sender._id,
+        nom: sender.nom,
+        prenom: sender.prenom,
+        email: sender.email,
+        photo_profil: sender.photo_profil,
+        ville: sender.ville,
+        requestDate: r.created_date
       };
     });
     
