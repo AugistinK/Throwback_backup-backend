@@ -366,6 +366,9 @@ exports.rejectFriendRequest = async (req, res) => {
   }
 };
 
+
+// controllers/friendsController.js
+
 /**
  * @desc    Retirer un ami
  * @route   DELETE /api/friends/remove/:friendId
