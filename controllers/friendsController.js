@@ -6,7 +6,6 @@ const User = require('../models/User');
 const LogAction = require('../models/LogAction');
 
 
-
 /**
  * @desc    Récupérer tous les amis de l'utilisateur connecté
  * @route   GET /api/friends
@@ -39,43 +38,94 @@ exports.getFriends = async (req, res) => {
 
 exports.getFriendRequests = async (req, res) => {
   try {
+    console.log('Starting getFriendRequests function');
     const userId = req.user.id || req.user._id;
+    console.log('User ID:', userId, 'Type:', typeof userId);
+
+    // Convertir userId en string pour éviter les problèmes de casting
+    const userIdStr = userId.toString();
+    console.log('UserID as string:', userIdStr);
+
+    // Approche sans populate pour éviter les erreurs _doc
+    let requests;
+    try {
+      requests = await Friendship.find({
+        user2: userIdStr,
+        status: 'pending'
+      }).sort({ created_date: -1 });
+      console.log('Found friend requests:', requests.length);
+    } catch (findError) {
+      console.error('Error in friendship find:', findError);
+      // Fallback avec MongoDB natif si Mongoose échoue
+      const db = mongoose.connection.db;
+      const friendshipCollection = db.collection('friendships');
+      const rawRequests = await friendshipCollection.find({
+        user2: userIdStr,
+        status: 'pending'
+      }).sort({ created_date: -1 }).toArray();
+      
+      requests = rawRequests;
+      console.log('Using MongoDB native fallback, found:', requests.length);
+    }
+
+    // Préparer le résultat sans aucun populate
+    const formattedRequests = [];
+    
+    for (const request of requests) {
+      // Récupérer l'ID de l'expéditeur de la demande
+      const senderId = request.user1 ? request.user1.toString() : null;
+      console.log('Processing request from sender ID:', senderId);
+      
+      if (!senderId) {
+        console.log('No valid sender ID found, using default values');
+        formattedRequests.push({
+          friendshipId: request._id.toString(),
+          _id: 'unknown',
+          nom: 'Utilisateur inconnu',
+          prenom: '',
+          email: '',
+          photo_profil: null,
+          ville: null,
+          requestDate: request.created_date
+        });
+        continue;
+      }
+
+      // Récupérer les données de l'expéditeur séparément
+      let sender;
+      try {
+        sender = await User.findById(senderId)
+          .select('nom prenom email photo_profil ville')
+          .lean(); // Utiliser lean() pour obtenir un objet JavaScript pur
         
-    const requests = await Friendship.find({
-      user2: userId,
-      status: 'pending'
-    })
-    .sort({ created_date: -1 })
-    .lean();
+        console.log('Sender found:', sender ? 'yes' : 'no');
+      } catch (userError) {
+        console.error('Error finding sender:', userError);
+        sender = null;
+      }
 
-    const senderIds = requests.map(r => r.user1).filter(Boolean);
+      // Construire l'objet avec des valeurs par défaut sécurisées
+      formattedRequests.push({
+        friendshipId: request._id.toString(),
+        _id: senderId,
+        nom: sender?.nom || 'Utilisateur inconnu',
+        prenom: sender?.prenom || '',
+        email: sender?.email || '',
+        photo_profil: sender?.photo_profil || null,
+        ville: sender?.ville || null,
+        requestDate: request.created_date
+      });
+    }
 
-    const senders = await User.find({ _id: { $in: senderIds } })
-      .select('nom prenom email photo_profil ville')
-      .lean();
-
-    const senderMap = new Map(senders.map(s => [String(s._id), s]));
-
-    const formattedRequests = requests.map(r => {
-      const sender = senderMap.get(String(r.user1)) || {};
-      return {
-        friendshipId: r._id,
-        _id: sender._id || r.user1,
-        nom: sender.nom || 'Utilisateur inconnu',
-        prenom: sender.prenom || '',
-        email: sender.email || '',
-        photo_profil: sender.photo_profil || null,
-        ville: sender.ville || null,
-        requestDate: r.created_date
-      };
-    });
- 
+    console.log('Successfully formatted requests, count:', formattedRequests.length);
+    
     res.status(200).json({
       success: true,
       data: formattedRequests
     });
   } catch (error) {
-    console.error('Error in getFriendRequests:', error);
+    console.error('Error in getFriendRequests (detailed):', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des demandes',
