@@ -1,6 +1,7 @@
 // controllers/friendGroupsController.js
 const FriendGroup = require('../models/FriendGroup');
 const LogAction = require('../models/LogAction');
+const mongoose = require('mongoose');
 
 /**
  * @desc    Récupérer tous les groupes d'amis de l'utilisateur

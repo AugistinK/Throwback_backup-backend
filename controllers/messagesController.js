@@ -2,6 +2,7 @@
 const Message = require('../models/Message');
 const Friendship = require('../models/Friendship');
 const LogAction = require('../models/LogAction');
+const mongoose = require('mongoose');
 
 /**
  * @desc    Récupérer les conversations de l'utilisateur

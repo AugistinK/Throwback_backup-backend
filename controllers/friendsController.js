@@ -1,9 +1,10 @@
 // controllers/friendsController.js
-const mongoose = require('mongoose'); 
 const Friendship = require('../models/Friendship');
 const FriendGroup = require('../models/FriendGroup');
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
+
+const mongoose = require('mongoose');
 
 
 /**
