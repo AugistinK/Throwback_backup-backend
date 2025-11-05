@@ -130,6 +130,10 @@ const logActionSchema = new Schema(
         'FRIEND_GROUP_DELETED',
         'FRIEND_REMOVED',
         'FRIEND_REQUEST_SENT',
+        'FRIEND_REQUEST_ACCEPTED',
+        'FRIEND_REQUEST_REJECTED',
+        'FRIEND_REQUEST_SENT'
+      
       ]
     },
     description_action: {

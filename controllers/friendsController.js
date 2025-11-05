@@ -3,9 +3,7 @@ const Friendship = require('../models/Friendship');
 const FriendGroup = require('../models/FriendGroup');
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
-
 const mongoose = require('mongoose');
-
 
 /**
  * @desc    Récupérer tous les amis de l'utilisateur connecté
@@ -36,98 +34,121 @@ exports.getFriends = async (req, res) => {
  * @route   GET /api/friends/requests
  * @access  Private
  */
-
 exports.getFriendRequests = async (req, res) => {
   try {
-    console.log('Starting getFriendRequests function');
+    console.log('NOUVELLE VERSION: Starting getFriendRequests function');
     const userId = req.user.id || req.user._id;
-    console.log('User ID:', userId, 'Type:', typeof userId);
-
-    // Convertir userId en string pour éviter les problèmes de casting
-    const userIdStr = userId.toString();
-    console.log('UserID as string:', userIdStr);
-
-    // Approche sans populate pour éviter les erreurs _doc
-    let requests;
-    try {
-      requests = await Friendship.find({
-        user2: userIdStr,
-        status: 'pending'
-      }).sort({ created_date: -1 });
-      console.log('Found friend requests:', requests.length);
-    } catch (findError) {
-      console.error('Error in friendship find:', findError);
-      // Fallback avec MongoDB natif si Mongoose échoue
-      const db = mongoose.connection.db;
-      const friendshipCollection = db.collection('friendships');
-      const rawRequests = await friendshipCollection.find({
-        user2: userIdStr,
-        status: 'pending'
-      }).sort({ created_date: -1 }).toArray();
-      
-      requests = rawRequests;
-      console.log('Using MongoDB native fallback, found:', requests.length);
-    }
-
-    // Préparer le résultat sans aucun populate
+    
+    // Version robuste qui évite populate() et l'utilisation de _doc
     const formattedRequests = [];
     
-    for (const request of requests) {
-      // Récupérer l'ID de l'expéditeur de la demande
-      const senderId = request.user1 ? request.user1.toString() : null;
-      console.log('Processing request from sender ID:', senderId);
+    try {
+      // Récupérer les demandes d'amitié
+      const requests = await Friendship.find({
+        user2: userId,
+        status: 'pending'
+      }).sort({ created_date: -1 });
       
-      if (!senderId) {
-        console.log('No valid sender ID found, using default values');
+      console.log(`Found ${requests.length} friend requests`);
+      
+      // Récupérer tous les IDs des expéditeurs
+      const senderIds = requests
+        .map(r => r.user1 ? r.user1.toString() : null)
+        .filter(id => id !== null);
+      
+      // Convertir les IDs en ObjectId pour la requête mongoose
+      const objectIds = senderIds.map(id => {
+        try {
+          return new mongoose.Types.ObjectId(id);
+        } catch (err) {
+          console.log(`Invalid ObjectId: ${id}`);
+          return null;
+        }
+      }).filter(id => id !== null);
+      
+      // Récupérer tous les utilisateurs en une seule requête
+      const senders = await User.find({
+        _id: { $in: objectIds }
+      })
+      .select('_id nom prenom email photo_profil ville')
+      .lean();
+      
+      console.log(`Found ${senders.length} users from database`);
+      
+      // Créer un map d'utilisateurs pour un accès rapide
+      const senderMap = {};
+      senders.forEach(sender => {
+        senderMap[sender._id.toString()] = sender;
+      });
+      
+      // Construire le résultat final
+      for (const request of requests) {
+        const senderId = request.user1 ? request.user1.toString() : null;
+        const sender = senderMap[senderId];
+        
         formattedRequests.push({
           friendshipId: request._id.toString(),
-          _id: 'unknown',
-          nom: 'Utilisateur inconnu',
-          prenom: '',
-          email: '',
-          photo_profil: null,
-          ville: null,
+          _id: senderId,
+          nom: sender?.nom || 'Utilisateur inconnu',
+          prenom: sender?.prenom || '',
+          email: sender?.email || '',
+          photo_profil: sender?.photo_profil || null,
+          ville: sender?.ville || null,
           requestDate: request.created_date
         });
-        continue;
       }
-
-      // Récupérer les données de l'expéditeur séparément
-      let sender;
+    } catch (dbError) {
+      console.error('Database error:', dbError);
+      // Fallback à l'API MongoDB native en cas d'erreur
       try {
-        sender = await User.findById(senderId)
-          .select('nom prenom email photo_profil ville')
-          .lean(); // Utiliser lean() pour obtenir un objet JavaScript pur
+        const db = mongoose.connection.db;
+        const friendshipCollection = db.collection('friendships');
+        const userCollection = db.collection('users');
         
-        console.log('Sender found:', sender ? 'yes' : 'no');
-      } catch (userError) {
-        console.error('Error finding sender:', userError);
-        sender = null;
+        const rawRequests = await friendshipCollection.find({
+          user2: userId.toString(),
+          status: 'pending'
+        }).sort({ created_date: -1 }).toArray();
+        
+        for (const request of rawRequests) {
+          let sender = null;
+          
+          try {
+            if (request.user1) {
+              sender = await userCollection.findOne({ 
+                _id: new mongoose.Types.ObjectId(request.user1.toString()) 
+              });
+            }
+          } catch (innerError) {
+            console.error('Error finding sender:', innerError);
+          }
+          
+          formattedRequests.push({
+            friendshipId: request._id.toString(),
+            _id: request.user1 ? request.user1.toString() : null,
+            nom: sender?.nom || 'Utilisateur inconnu',
+            prenom: sender?.prenom || '',
+            email: sender?.email || '',
+            photo_profil: sender?.photo_profil || null,
+            ville: sender?.ville || null,
+            requestDate: request.created_date
+          });
+        }
+      } catch (nativeError) {
+        console.error('Native MongoDB error:', nativeError);
       }
-
-      // Construire l'objet avec des valeurs par défaut sécurisées
-      formattedRequests.push({
-        friendshipId: request._id.toString(),
-        _id: senderId,
-        nom: sender?.nom || 'Utilisateur inconnu',
-        prenom: sender?.prenom || '',
-        email: sender?.email || '',
-        photo_profil: sender?.photo_profil || null,
-        ville: sender?.ville || null,
-        requestDate: request.created_date
-      });
     }
-
-    console.log('Successfully formatted requests, count:', formattedRequests.length);
     
-    res.status(200).json({
+    console.log(`Returning ${formattedRequests.length} formatted requests`);
+    
+    return res.status(200).json({
       success: true,
       data: formattedRequests
     });
   } catch (error) {
-    console.error('Error in getFriendRequests (detailed):', error);
-    console.error('Error stack:', error.stack);
-    res.status(500).json({
+    console.error('Error in getFriendRequests:', error);
+    console.error('Stack trace:', error.stack);
+    return res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des demandes',
       error: error.message
@@ -166,12 +187,12 @@ exports.getFriendSuggestions = async (req, res) => {
     })
     .limit(30)
     .select('nom prenom email photo_profil ville')
-    .lean(); 
+    .lean();
 
-const formattedSuggestions = suggestions.map(user => ({
-  ...user,         
-  reason: 'Same city'
-}));
+    const formattedSuggestions = suggestions.map(user => ({
+      ...user,         
+      reason: 'Same city'
+    }));
     
     res.status(200).json({
       success: true,
@@ -261,7 +282,6 @@ exports.sendFriendRequest = async (req, res) => {
  * @route   PUT /api/friends/accept/:friendshipId
  * @access  Private
  */
-
 exports.acceptFriendRequest = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
@@ -277,9 +297,15 @@ exports.acceptFriendRequest = async (req, res) => {
     }
 
     // Convertir l'ID en ObjectId si nécessaire
-    const friendshipObjectId = mongoose.Types.ObjectId.isValid(friendshipId)
-      ? new mongoose.Types.ObjectId(friendshipId)
-      : friendshipId;
+    let friendshipObjectId;
+    try {
+      friendshipObjectId = mongoose.Types.ObjectId.isValid(friendshipId)
+        ? new mongoose.Types.ObjectId(friendshipId)
+        : friendshipId;
+    } catch (error) {
+      console.error('Error converting friendshipId to ObjectId:', error);
+      friendshipObjectId = friendshipId;
+    }
       
     const friendship = await Friendship.findOne({
       _id: friendshipObjectId,
@@ -365,9 +391,6 @@ exports.rejectFriendRequest = async (req, res) => {
     });
   }
 };
-
-
-// controllers/friendsController.js
 
 /**
  * @desc    Retirer un ami
@@ -565,12 +588,21 @@ exports.getBlockedUsers = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     
+    // Utilisation d'une approche plus robuste sans populate()
     const blocked = await Friendship.find({
       user1: userId,
       status: 'blocked'
-    }).populate('user2', 'nom prenom email photo_profil');
+    }).lean();
     
-    const blockedUsers = blocked.map(b => b.user2);
+    // Récupérer les IDs des utilisateurs bloqués
+    const blockedUserIds = blocked.map(b => b.user2);
+    
+    // Récupérer les détails des utilisateurs dans une requête séparée
+    const blockedUsers = await User.find({
+      _id: { $in: blockedUserIds }
+    })
+    .select('nom prenom email photo_profil')
+    .lean();
     
     res.status(200).json({
       success: true,
@@ -581,6 +613,174 @@ exports.getBlockedUsers = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des utilisateurs bloqués'
+    });
+  }
+};
+
+/**
+ * @desc    Récupérer les groupes d'amis de l'utilisateur
+ * @route   GET /api/friends/groups
+ * @access  Private
+ */
+exports.getFriendGroups = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    
+    // Récupérer les groupes dont l'utilisateur est propriétaire
+    const groups = await FriendGroup.find({ owner: userId })
+      .lean();
+    
+    // Pour chaque groupe, récupérer les détails des membres
+    const enrichedGroups = [];
+    for (const group of groups) {
+      // Récupérer les détails des membres en une seule requête
+      const members = await User.find({
+        _id: { $in: group.members }
+      })
+      .select('_id nom prenom email photo_profil')
+      .lean();
+      
+      enrichedGroups.push({
+        ...group,
+        members
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: enrichedGroups
+    });
+  } catch (error) {
+    console.error('Error in getFriendGroups:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des groupes d\'amis'
+    });
+  }
+};
+
+/**
+ * @desc    Créer un groupe d'amis
+ * @route   POST /api/friends/groups
+ * @access  Private
+ */
+exports.createFriendGroup = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { name, description, color, members = [] } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Group name is required'
+      });
+    }
+    
+    // Créer le groupe
+    const group = await FriendGroup.create({
+      name,
+      description,
+      color: color || '#b31217',
+      owner: userId,
+      members,
+      created_by: userId
+    });
+    
+    res.status(201).json({
+      success: true,
+      message: 'Friend group created successfully',
+      data: group
+    });
+  } catch (error) {
+    console.error('Error in createFriendGroup:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la création du groupe d\'amis'
+    });
+  }
+};
+
+/**
+ * @desc    Mettre à jour un groupe d'amis
+ * @route   PUT /api/friends/groups/:groupId
+ * @access  Private
+ */
+exports.updateFriendGroup = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { groupId } = req.params;
+    const { name, description, color, members } = req.body;
+    
+    // Vérifier que l'utilisateur est le propriétaire du groupe
+    const group = await FriendGroup.findOne({
+      _id: groupId,
+      owner: userId
+    });
+    
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Friend group not found or you are not the owner'
+      });
+    }
+    
+    // Mettre à jour les champs
+    if (name) group.name = name;
+    if (description !== undefined) group.description = description;
+    if (color) group.color = color;
+    if (members) group.members = members;
+    
+    group.modified_date = Date.now();
+    group.modified_by = userId;
+    
+    await group.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Friend group updated successfully',
+      data: group
+    });
+  } catch (error) {
+    console.error('Error in updateFriendGroup:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la mise à jour du groupe d\'amis'
+    });
+  }
+};
+
+/**
+ * @desc    Supprimer un groupe d'amis
+ * @route   DELETE /api/friends/groups/:groupId
+ * @access  Private
+ */
+exports.deleteFriendGroup = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { groupId } = req.params;
+    
+    // Vérifier que l'utilisateur est le propriétaire du groupe
+    const group = await FriendGroup.findOneAndDelete({
+      _id: groupId,
+      owner: userId
+    });
+    
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Friend group not found or you are not the owner'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Friend group deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error in deleteFriendGroup:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la suppression du groupe d\'amis'
     });
   }
 };
