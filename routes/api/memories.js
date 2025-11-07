@@ -1,4 +1,6 @@
+
 // routes/api/memories.js
+
 const express = require('express');
 const router = express.Router();
 const memoryController = require('../../controllers/memoryController');
@@ -16,7 +18,7 @@ router.delete('/:id', protect, memoryController.deleteMemory);
 router.get('/:id/replies', memoryController.getMemoryReplies);
 router.post('/:id/replies', protect, memoryController.addReply);
 
-// Signalement
-router.post('/:id/report', protect, memoryController.reportMemory); // si vous l’activez
+// Signalement (maintenant implémenté)
+router.post('/:id/report', protect, memoryController.reportMemory);
 
 module.exports = router;

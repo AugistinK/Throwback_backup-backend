@@ -1,4 +1,7 @@
-// controllers/memoryController.js
+// ================================
+// controllers/memoryController.js correction du 2025-07
+// ================================
+
 const Comment = require('../models/Comment'); 
 const Video = require('../models/Video');
 const User = require('../models/User');
@@ -406,34 +409,55 @@ exports.addReply = async (req, res) => {
 };
 
 /**
- * GET /api/public/memories/recent
+ * POST /api/memories/:id/report
+ * - permet à un utilisateur connecté de signaler un souvenir (ou une réponse)
+ * - empêche les doublons de signalement par le même utilisateur
  */
-exports.getRecentMemories = async (req, res) => {
+exports.reportMemory = async (req, res) => {
   try {
-    const { limit = 10 } = req.query;
+    const { id: memoryId } = req.params;
+    const userId = req.user?._id || req.user?.id;
+    const { motif = 'inapproprié', details = '' } = req.body || {};
 
-    const memories = await Comment.find({ statut: 'ACTIF', parent_comment: null })
-      .sort({ creation_date: -1 })
-      .limit(parseInt(limit))
-      .populate('auteur', 'nom prenom photo_profil')
-      .populate('video_id', 'titre artiste annee');
+    if (!userId) return res.status(401).json({ success: false, message: 'Utilisateur non authentifié' });
 
-    const formatted = await Promise.all(memories.map(async (m) => {
-      const replyCount = await Comment.countDocuments({ parent_comment: m._id, statut: 'ACTIF' });
-      return {
-        _id: m._id,
-        auteur: m.auteur || { nom: '', prenom: '' },
-        video: m.video_id || { titre: '', artiste: '', annee: '' },
-        contenu: m.contenu || '',
-        likes: m.likes || 0,
-        nb_commentaires: replyCount,
-        creation_date: m.creation_date
-      };
-    }));
+    const memory = await Comment.findById(memoryId);
+    if (!memory) return res.status(404).json({ success: false, message: 'Souvenir non trouvé' });
 
-    res.status(200).json({ success: true, data: formatted });
+    // Normaliser le champ signale_par
+    if (!Array.isArray(memory.signale_par)) memory.signale_par = [];
+
+    const already = memory.signale_par.some(entry => {
+      if (entry && typeof entry === 'object') {
+        return (entry.user && (entry.user.equals?.(userId) || `${entry.user}` === `${userId}`));
+      }
+      return `${entry}` === `${userId}`; // compat ancien format [ObjectId]
+    });
+
+    if (already) {
+      return res.status(200).json({ success: true, message: 'Souvenir déjà signalé par cet utilisateur' });
+    }
+
+    // Pousser un objet plus riche (compat ancien schéma si juste ObjectId)
+    memory.signale_par.push({ user: userId, motif, details, date: new Date() });
+    await memory.save();
+
+    try {
+      await LogAction.create({
+        type_action: 'SOUVENIR_SIGNALE',
+        description_action: 'Souvenir signalé',
+        id_user: userId,
+        ip_address: req.ip,
+        user_agent: req.headers['user-agent'],
+        created_by: userId,
+        donnees_supplementaires: { memoire_id: memoryId, motif, details }
+      });
+    } catch {}
+
+    res.status(201).json({ success: true, message: 'Signalement enregistré' });
   } catch (err) {
-    console.error("Erreur getRecentMemories:", err);
-    res.status(500).json({ success: false, message: "Erreur lors de la récupération des souvenirs récents" });
+    console.error('Erreur reportMemory:', err);
+    res.status(500).json({ success: false, message: "Erreur lors du signalement" });
   }
 };
+
