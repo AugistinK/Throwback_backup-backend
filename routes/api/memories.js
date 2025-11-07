@@ -15,7 +15,7 @@ try {
 
 let protectImported = {};
 try {
-  protectImported = require('../../middlewares/authMiddleware'); // ajuste si ton chemin diffère
+  protectImported = require('../../middlewares/authMiddleware'); 
 } catch (e) {
   console.warn('[memories] Impossible de charger authMiddleware:', e.message);
 }
