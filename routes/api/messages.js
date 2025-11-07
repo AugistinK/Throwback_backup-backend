@@ -1,4 +1,4 @@
-// routes/api/messages.js
+// routes/api/messages.js 
 const express = require('express');
 const router = express.Router();
 const messagesController = require('../../controllers/messagesController');
@@ -6,7 +6,7 @@ const { protect } = require('../../middlewares/authMiddleware');
 
 /**
  * @route   GET /api/messages/conversations
- * @desc    Récupérer toutes les conversations
+ * @desc    Récupérer les conversations de l'utilisateur
  * @access  Private
  */
 router.get('/conversations', protect, messagesController.getConversations);

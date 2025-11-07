@@ -1,15 +1,15 @@
-// models/Friendship.js
+// models/Friendship.js - VERSION CORRIGÉE
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
 
 const friendshipSchema = new Schema(
   {
-    user1: {
+    requester: {
       type: Schema.Types.ObjectId,
       ref: 'User',
       required: true
     },
-    user2: {
+    receiver: {
       type: Schema.Types.ObjectId,
       ref: 'User',
       required: true
@@ -18,11 +18,6 @@ const friendshipSchema = new Schema(
       type: String,
       enum: ['pending', 'accepted', 'rejected', 'blocked'],
       default: 'pending'
-    },
-    initiator: {
-      type: Schema.Types.ObjectId,
-      ref: 'User',
-      required: true
     },
     created_by: {
       type: String,
@@ -44,44 +39,78 @@ const friendshipSchema = new Schema(
   }
 );
 
-// Index composé pour éviter les doublons et optimiser les recherches
-friendshipSchema.index({ user1: 1, user2: 1 }, { unique: true });
+//  Index pour éviter les doublons et optimiser les recherches
+friendshipSchema.index({ requester: 1, receiver: 1 }, { unique: true });
 friendshipSchema.index({ status: 1 });
-friendshipSchema.index({ user1: 1, status: 1 });
-friendshipSchema.index({ user2: 1, status: 1 });
+friendshipSchema.index({ requester: 1, status: 1 });
+friendshipSchema.index({ receiver: 1, status: 1 });
 
-// Méthode pour vérifier si deux utilisateurs sont amis
+/**
+ *  CORRECTION: Méthode pour vérifier si deux utilisateurs sont amis
+ */
 friendshipSchema.statics.areFriends = async function(userId1, userId2) {
   const friendship = await this.findOne({
     $or: [
-      { user1: userId1, user2: userId2, status: 'accepted' },
-      { user1: userId2, user2: userId1, status: 'accepted' }
+      { requester: userId1, receiver: userId2, status: 'accepted' },
+      { requester: userId2, receiver: userId1, status: 'accepted' }
     ]
   });
   return !!friendship;
 };
 
-// Méthode pour obtenir tous les amis d'un utilisateur
+/**
+ *  CORRECTION: Méthode pour obtenir tous les amis d'un utilisateur
+ */
 friendshipSchema.statics.getFriends = async function(userId) {
   const friendships = await this.find({
     $or: [
-      { user1: userId, status: 'accepted' },
-      { user2: userId, status: 'accepted' }
+      { requester: userId, status: 'accepted' },
+      { receiver: userId, status: 'accepted' }
     ]
-  }).populate('user1 user2', 'nom prenom email photo_profil ville statut_compte');
+  }).populate('requester receiver', 'nom prenom email photo_profil ville statut_compte');
   
   return friendships.map(f => {
-    const friend = f.user1._id.toString() === userId.toString() ? f.user2 : f.user1;
+    const friend = f.requester._id.toString() === userId.toString() ? f.receiver : f.requester;
     return friend;
   });
 };
 
-// Hook pre-save pour s'assurer que user1 < user2 (éviter les doublons)
-friendshipSchema.pre('save', function(next) {
-  if (this.user1.toString() > this.user2.toString()) {
-    [this.user1, this.user2] = [this.user2, this.user1];
-  }
-  next();
-});
+/**
+ *  CORRECTION: Méthode pour obtenir les demandes reçues
+ */
+friendshipSchema.statics.getReceivedRequests = async function(userId) {
+  return await this.find({
+    receiver: userId,
+    status: 'pending'
+  }).populate('requester', 'nom prenom email photo_profil ville statut_compte')
+    .sort({ created_date: -1 });
+};
+
+/**
+ *  CORRECTION: Méthode pour obtenir les demandes envoyées
+ */
+friendshipSchema.statics.getSentRequests = async function(userId) {
+  return await this.find({
+    requester: userId,
+    status: 'pending'
+  }).populate('receiver', 'nom prenom email photo_profil ville statut_compte')
+    .sort({ created_date: -1 });
+};
+
+/**
+ *  NOUVEAU: Méthode pour vérifier l'existence d'une demande
+ */
+friendshipSchema.statics.requestExists = async function(userId1, userId2) {
+  const request = await this.findOne({
+    $or: [
+      { requester: userId1, receiver: userId2 },
+      { requester: userId2, receiver: userId1 }
+    ]
+  });
+  return !!request;
+};
+
+//  SUPPRIMÉ: Le hook pre-save qui causait les problèmes
+// Plus de réorganisation automatique de requester/receiver
 
 module.exports = model('Friendship', friendshipSchema);

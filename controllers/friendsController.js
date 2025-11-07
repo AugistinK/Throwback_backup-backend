@@ -1,11 +1,8 @@
-// controllers/friendsController.js
+// controllers/friendsController.js - VERSION CORRIGÉE
 const Friendship = require('../models/Friendship');
-const FriendGroup = require('../models/FriendGroup');
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
-
 const mongoose = require('mongoose');
-
 
 /**
  * @desc    Récupérer tous les amis de l'utilisateur connecté
@@ -32,91 +29,36 @@ exports.getFriends = async (req, res) => {
 };
 
 /**
- * @desc    Récupérer les demandes d'amis en attente
+ *  CORRECTION CRITIQUE: Récupérer les demandes d'amis en attente
  * @route   GET /api/friends/requests
  * @access  Private
  */
-
 exports.getFriendRequests = async (req, res) => {
   try {
     console.log('Starting getFriendRequests function');
     const userId = req.user.id || req.user._id;
     console.log('User ID:', userId, 'Type:', typeof userId);
 
-    // Convertir userId en string pour éviter les problèmes de casting
-    const userIdStr = userId.toString();
-    console.log('UserID as string:', userIdStr);
+    //  Utiliser la nouvelle méthode statique
+    const requests = await Friendship.getReceivedRequests(userId);
+    console.log('Found friend requests:', requests.length);
 
-    // Approche sans populate pour éviter les erreurs _doc
-    let requests;
-    try {
-      requests = await Friendship.find({
-        user2: userIdStr,
-        status: 'pending'
-      }).sort({ created_date: -1 });
-      console.log('Found friend requests:', requests.length);
-    } catch (findError) {
-      console.error('Error in friendship find:', findError);
-      // Fallback avec MongoDB natif si Mongoose échoue
-      const db = mongoose.connection.db;
-      const friendshipCollection = db.collection('friendships');
-      const rawRequests = await friendshipCollection.find({
-        user2: userIdStr,
-        status: 'pending'
-      }).sort({ created_date: -1 }).toArray();
+    //  CORRECTION: Formater correctement avec friendshipId et senderId séparés
+    const formattedRequests = requests.map(request => {
+      const sender = request.requester;
       
-      requests = rawRequests;
-      console.log('Using MongoDB native fallback, found:', requests.length);
-    }
-
-    // Préparer le résultat sans aucun populate
-    const formattedRequests = [];
-    
-    for (const request of requests) {
-      // Récupérer l'ID de l'expéditeur de la demande
-      const senderId = request.user1 ? request.user1.toString() : null;
-      console.log('Processing request from sender ID:', senderId);
-      
-      if (!senderId) {
-        console.log('No valid sender ID found, using default values');
-        formattedRequests.push({
-          friendshipId: request._id.toString(),
-          _id: 'unknown',
-          nom: 'Utilisateur inconnu',
-          prenom: '',
-          email: '',
-          photo_profil: null,
-          ville: null,
-          requestDate: request.created_date
-        });
-        continue;
-      }
-
-      // Récupérer les données de l'expéditeur séparément
-      let sender;
-      try {
-        sender = await User.findById(senderId)
-          .select('nom prenom email photo_profil ville')
-          .lean(); // Utiliser lean() pour obtenir un objet JavaScript pur
-        
-        console.log('Sender found:', sender ? 'yes' : 'no');
-      } catch (userError) {
-        console.error('Error finding sender:', userError);
-        sender = null;
-      }
-
-      // Construire l'objet avec des valeurs par défaut sécurisées
-      formattedRequests.push({
-        friendshipId: request._id.toString(),
-        _id: senderId,
-        nom: sender?.nom || 'Utilisateur inconnu',
-        prenom: sender?.prenom || '',
-        email: sender?.email || '',
-        photo_profil: sender?.photo_profil || null,
-        ville: sender?.ville || null,
+      return {
+        _id: request._id.toString(),              //  ID du document Friendship
+        friendshipId: request._id.toString(),     //  Alias pour clarté
+        senderId: sender._id.toString(),          //  ID de l'expéditeur séparé
+        nom: sender.nom || 'Utilisateur inconnu',
+        prenom: sender.prenom || '',
+        email: sender.email || '',
+        photo_profil: sender.photo_profil || null,
+        ville: sender.ville || null,
         requestDate: request.created_date
-      });
-    }
+      };
+    });
 
     console.log('Successfully formatted requests, count:', formattedRequests.length);
     
@@ -125,8 +67,7 @@ exports.getFriendRequests = async (req, res) => {
       data: formattedRequests
     });
   } catch (error) {
-    console.error('Error in getFriendRequests (detailed):', error);
-    console.error('Error stack:', error.stack);
+    console.error('Error in getFriendRequests:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des demandes',
@@ -145,16 +86,23 @@ exports.getFriendSuggestions = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const currentUser = await User.findById(userId);
     
-    // Récupérer les IDs des amis existants et demandes en cours
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    //  Récupérer les IDs des amis existants et demandes en cours
     const existingFriendships = await Friendship.find({
       $or: [
-        { user1: userId },
-        { user2: userId }
+        { requester: userId },
+        { receiver: userId }
       ]
     });
     
     const excludedIds = existingFriendships.map(f => 
-      f.user1.toString() === userId.toString() ? f.user2 : f.user1
+      f.requester.toString() === userId.toString() ? f.receiver : f.requester
     );
     excludedIds.push(userId);
     
@@ -168,10 +116,11 @@ exports.getFriendSuggestions = async (req, res) => {
     .select('nom prenom email photo_profil ville')
     .lean(); 
 
-const formattedSuggestions = suggestions.map(user => ({
-  ...user,         
-  reason: 'Same city'
-}));
+    const formattedSuggestions = suggestions.map(user => ({
+      ...user,
+      _id: user._id.toString(),
+      reason: 'Same city'
+    }));
     
     res.status(200).json({
       success: true,
@@ -187,7 +136,7 @@ const formattedSuggestions = suggestions.map(user => ({
 };
 
 /**
- * @desc    Envoyer une demande d'ami
+ *  CORRECTION: Envoyer une demande d'ami
  * @route   POST /api/friends/request
  * @access  Private
  */
@@ -210,26 +159,32 @@ exports.sendFriendRequest = async (req, res) => {
       });
     }
     
-    // Vérifier si une relation existe déjà
+    //  Vérifier si une relation existe déjà
     const existingFriendship = await Friendship.findOne({
       $or: [
-        { user1: userId, user2: friendId },
-        { user1: friendId, user2: userId }
+        { requester: userId, receiver: friendId },
+        { requester: friendId, receiver: userId }
       ]
     });
     
     if (existingFriendship) {
+      let message = 'Friend request already exists';
+      if (existingFriendship.status === 'accepted') {
+        message = 'You are already friends';
+      } else if (existingFriendship.status === 'blocked') {
+        message = 'Cannot send friend request';
+      }
+      
       return res.status(400).json({
         success: false,
-        message: 'Friend request already exists or you are already friends'
+        message
       });
     }
     
-    // Créer la demande
+    //  Créer la demande avec la nouvelle structure
     const friendship = await Friendship.create({
-      user1: userId,
-      user2: friendId,
-      initiator: userId,
+      requester: userId,
+      receiver: friendId,
       status: 'pending',
       created_by: userId
     });
@@ -257,11 +212,10 @@ exports.sendFriendRequest = async (req, res) => {
 };
 
 /**
- * @desc    Accepter une demande d'ami
+ *  CORRECTION CRITIQUE: Accepter une demande d'ami
  * @route   PUT /api/friends/accept/:friendshipId
  * @access  Private
  */
-
 exports.acceptFriendRequest = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
@@ -276,14 +230,18 @@ exports.acceptFriendRequest = async (req, res) => {
       });
     }
 
-    // Convertir l'ID en ObjectId si nécessaire
-    const friendshipObjectId = mongoose.Types.ObjectId.isValid(friendshipId)
-      ? new mongoose.Types.ObjectId(friendshipId)
-      : friendshipId;
+    //  Vérifier que l'ID est valide
+    if (!mongoose.Types.ObjectId.isValid(friendshipId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid friendship ID'
+      });
+    }
       
+    //  CORRECTION: Chercher par receiver (celui qui reçoit la demande)
     const friendship = await Friendship.findOne({
-      _id: friendshipObjectId,
-      user2: userId,
+      _id: friendshipId,
+      receiver: userId,
       status: 'pending'
     });
     
@@ -295,6 +253,7 @@ exports.acceptFriendRequest = async (req, res) => {
       });
     }
     
+    //  Accepter la demande
     friendship.status = 'accepted';
     friendship.modified_date = Date.now();
     friendship.modified_by = userId;
@@ -303,10 +262,12 @@ exports.acceptFriendRequest = async (req, res) => {
     // Log action
     await LogAction.create({
       type_action: 'FRIEND_REQUEST_ACCEPTED',
-      description_action: `Friend request accepted from user ${friendship.user1}`,
+      description_action: `Friend request accepted from user ${friendship.requester}`,
       id_user: userId,
       created_by: 'SYSTEM'
     });
+    
+    console.log(` Friend request accepted successfully`);
     
     res.status(200).json({
       success: true,
@@ -323,7 +284,7 @@ exports.acceptFriendRequest = async (req, res) => {
 };
 
 /**
- * @desc    Refuser une demande d'ami
+ *  CORRECTION: Refuser une demande d'ami
  * @route   DELETE /api/friends/reject/:friendshipId
  * @access  Private
  */
@@ -332,9 +293,18 @@ exports.rejectFriendRequest = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const { friendshipId } = req.params;
     
+    //  Vérifier que l'ID est valide
+    if (!mongoose.Types.ObjectId.isValid(friendshipId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid friendship ID'
+      });
+    }
+    
+    //  CORRECTION: Chercher par receiver
     const friendship = await Friendship.findOneAndDelete({
       _id: friendshipId,
-      user2: userId,
+      receiver: userId,
       status: 'pending'
     });
     
@@ -348,7 +318,7 @@ exports.rejectFriendRequest = async (req, res) => {
     // Log
     await LogAction.create({
       type_action: 'FRIEND_REQUEST_REJECTED',
-      description_action: `Friend request rejected from user ${friendship.user1}`,
+      description_action: `Friend request rejected from user ${friendship.requester}`,
       id_user: userId,
       created_by: 'SYSTEM'
     });
@@ -367,7 +337,7 @@ exports.rejectFriendRequest = async (req, res) => {
 };
 
 /**
- * @desc    Retirer un ami
+ *  CORRECTION: Retirer un ami
  * @route   DELETE /api/friends/remove/:friendId
  * @access  Private
  */
@@ -376,10 +346,19 @@ exports.removeFriend = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const { friendId } = req.params;
     
+    //  Vérifier que l'ID est valide
+    if (!mongoose.Types.ObjectId.isValid(friendId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid friend ID'
+      });
+    }
+    
+    //  CORRECTION: Chercher avec requester/receiver
     const friendship = await Friendship.findOneAndDelete({
       $or: [
-        { user1: userId, user2: friendId },
-        { user1: friendId, user2: userId }
+        { requester: userId, receiver: friendId },
+        { requester: friendId, receiver: userId }
       ],
       status: 'accepted'
     });
@@ -462,6 +441,13 @@ exports.getMutualFriends = async (req, res) => {
     const currentUserId = req.user.id || req.user._id;
     const { userId } = req.params;
     
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+    
     const currentUserFriends = await Friendship.getFriends(currentUserId);
     const otherUserFriends = await Friendship.getFriends(userId);
     
@@ -484,7 +470,7 @@ exports.getMutualFriends = async (req, res) => {
 };
 
 /**
- * @desc    Bloquer un utilisateur
+ *  CORRECTION: Bloquer un utilisateur
  * @route   POST /api/friends/block
  * @access  Private
  */
@@ -493,20 +479,26 @@ exports.blockUser = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const { userId: targetUserId } = req.body;
     
-    // Supprimer l'amitié si elle existe
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+    
+    //  Supprimer l'amitié si elle existe
     await Friendship.findOneAndDelete({
       $or: [
-        { user1: userId, user2: targetUserId },
-        { user1: targetUserId, user2: userId }
+        { requester: userId, receiver: targetUserId },
+        { requester: targetUserId, receiver: userId }
       ]
     });
     
-    // Créer une entrée de blocage
+    //  Créer une entrée de blocage
     const block = await Friendship.create({
-      user1: userId,
-      user2: targetUserId,
+      requester: userId,
+      receiver: targetUserId,
       status: 'blocked',
-      initiator: userId,
       created_by: userId
     });
     
@@ -525,7 +517,7 @@ exports.blockUser = async (req, res) => {
 };
 
 /**
- * @desc    Débloquer un utilisateur
+ *  CORRECTION: Débloquer un utilisateur
  * @route   DELETE /api/friends/unblock/:userId
  * @access  Private
  */
@@ -534,9 +526,16 @@ exports.unblockUser = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const { userId: targetUserId } = req.params;
     
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+    
     await Friendship.findOneAndDelete({
-      user1: userId,
-      user2: targetUserId,
+      requester: userId,
+      receiver: targetUserId,
       status: 'blocked'
     });
     
@@ -554,7 +553,7 @@ exports.unblockUser = async (req, res) => {
 };
 
 /**
- * @desc    Récupérer les utilisateurs bloqués
+ *  CORRECTION: Récupérer les utilisateurs bloqués
  * @route   GET /api/friends/blocked
  * @access  Private
  */
@@ -563,11 +562,11 @@ exports.getBlockedUsers = async (req, res) => {
     const userId = req.user.id || req.user._id;
     
     const blocked = await Friendship.find({
-      user1: userId,
+      requester: userId,
       status: 'blocked'
-    }).populate('user2', 'nom prenom email photo_profil');
+    }).populate('receiver', 'nom prenom email photo_profil');
     
-    const blockedUsers = blocked.map(b => b.user2);
+    const blockedUsers = blocked.map(b => b.receiver);
     
     res.status(200).json({
       success: true,
@@ -578,6 +577,49 @@ exports.getBlockedUsers = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des utilisateurs bloqués'
+    });
+  }
+};
+
+/**
+ *  NOUVEAU: Obtenir les statistiques d'amitié
+ * @route   GET /api/friends/stats
+ * @access  Private
+ */
+exports.getFriendshipStats = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    
+    const [friendsCount, pendingRequestsCount, sentRequestsCount] = await Promise.all([
+      Friendship.countDocuments({
+        $or: [
+          { requester: userId, status: 'accepted' },
+          { receiver: userId, status: 'accepted' }
+        ]
+      }),
+      Friendship.countDocuments({
+        receiver: userId,
+        status: 'pending'
+      }),
+      Friendship.countDocuments({
+        requester: userId,
+        status: 'pending'
+      })
+    ]);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        friends: friendsCount,
+        pendingRequests: pendingRequestsCount,
+        sentRequests: sentRequestsCount
+      }
+    });
+  } catch (error) {
+    console.error('Error in getFriendshipStats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des statistiques'
     });
   }
 };

@@ -1,4 +1,4 @@
-// socket/socketHandler.js
+// socket/socketHandler.js - VERSION CORRIGÉE
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Message = require('../models/Message');
@@ -49,7 +49,7 @@ const initializeSocketIO = (io) => {
     const userId = socket.userId;
     const userName = `${socket.user.prenom} ${socket.user.nom}`;
     
-    console.log(`✅ User connected: ${userName} (${userId})`);
+    console.log(` User connected: ${userName} (${userId})`);
 
     // Ajouter l'utilisateur aux utilisateurs en ligne
     onlineUsers.set(userId, socket.id);
@@ -84,13 +84,13 @@ const initializeSocketIO = (io) => {
     });
 
     /**
-     * Envoyer un message
+     *  CORRECTION: Envoyer un message avec vérification d'amitié
      */
     socket.on('send-message', async (data) => {
       try {
         const { receiverId, content, type = 'text', tempId } = data;
 
-        // Vérifier si les utilisateurs sont amis
+        //  CORRECTION: Vérifier si les utilisateurs sont amis avec la nouvelle structure
         const areFriends = await Friendship.areFriends(userId, receiverId);
         if (!areFriends) {
           return socket.emit('message-error', { 
@@ -228,7 +228,7 @@ const initializeSocketIO = (io) => {
           acceptedByName: userName,
           timestamp: Date.now()
         });
-        console.log(`✅ Friend request accepted by ${userId} for ${requesterId}`);
+        console.log(` Friend request accepted by ${userId} for ${requesterId}`);
       }
     });
 
@@ -334,12 +334,12 @@ const initializeSocketIO = (io) => {
     });
   });
 
-  console.log('✅ Socket.IO initialized successfully');
+  console.log(' Socket.IO initialized successfully');
   return io;
 };
 
 /**
- * Diffuser un événement aux amis de l'utilisateur
+ *  CORRECTION: Diffuser un événement aux amis de l'utilisateur
  */
 async function broadcastToFriends(socket, event, data) {
   try {

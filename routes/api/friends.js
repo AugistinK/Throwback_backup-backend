@@ -1,16 +1,17 @@
-// routes/api/friends.js
+// routes/api/friends.js 
 const express = require('express');
 const router = express.Router();
 const friendsController = require('../../controllers/friendsController');
 const friendGroupsController = require('../../controllers/friendGroupsController');
-const messagesController = require('../../controllers/messagesController');
 const { protect } = require('../../middlewares/authMiddleware');
 
-// ===== Routes Friends =====
+// ============================================
+// ROUTES DES AMIS
+// ============================================
 
 /**
  * @route   GET /api/friends
- * @desc    Récupérer tous les amis
+ * @desc    Récupérer tous les amis de l'utilisateur
  * @access  Private
  */
 router.get('/', protect, friendsController.getFriends);
@@ -30,6 +31,27 @@ router.get('/requests', protect, friendsController.getFriendRequests);
 router.get('/suggestions', protect, friendsController.getFriendSuggestions);
 
 /**
+ * @route   GET /api/friends/stats
+ * @desc    Récupérer les statistiques d'amitié
+ * @access  Private
+ */
+router.get('/stats', protect, friendsController.getFriendshipStats);
+
+/**
+ * @route   GET /api/friends/mutual/:userId
+ * @desc    Récupérer les amis mutuels avec un utilisateur
+ * @access  Private
+ */
+router.get('/mutual/:userId', protect, friendsController.getMutualFriends);
+
+/**
+ * @route   GET /api/friends/blocked
+ * @desc    Récupérer les utilisateurs bloqués
+ * @access  Private
+ */
+router.get('/blocked', protect, friendsController.getBlockedUsers);
+
+/**
  * @route   POST /api/friends/request
  * @desc    Envoyer une demande d'ami
  * @access  Private
@@ -37,6 +59,7 @@ router.get('/suggestions', protect, friendsController.getFriendSuggestions);
 router.post('/request', protect, friendsController.sendFriendRequest);
 
 /**
+ *  ROUTE CRITIQUE: Accepter une demande d'ami
  * @route   PUT /api/friends/accept/:friendshipId
  * @desc    Accepter une demande d'ami
  * @access  Private
@@ -58,13 +81,6 @@ router.delete('/reject/:friendshipId', protect, friendsController.rejectFriendRe
 router.delete('/remove/:friendId', protect, friendsController.removeFriend);
 
 /**
- * @route   GET /api/friends/mutual/:userId
- * @desc    Récupérer les amis mutuels avec un utilisateur
- * @access  Private
- */
-router.get('/mutual/:userId', protect, friendsController.getMutualFriends);
-
-/**
  * @route   POST /api/friends/block
  * @desc    Bloquer un utilisateur
  * @access  Private
@@ -78,14 +94,9 @@ router.post('/block', protect, friendsController.blockUser);
  */
 router.delete('/unblock/:userId', protect, friendsController.unblockUser);
 
-/**
- * @route   GET /api/friends/blocked
- * @desc    Récupérer les utilisateurs bloqués
- * @access  Private
- */
-router.get('/blocked', protect, friendsController.getBlockedUsers);
-
-// ===== Routes Friend Groups =====
+// ============================================
+// ROUTES DES GROUPES D'AMIS
+// ============================================
 
 /**
  * @route   GET /api/friends/groups

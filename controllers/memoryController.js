@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 
 /**
  * GET /api/videos/:id/memories
- * Commentaires de 1er niveau d’une vidéo (filtrage STRICT)
+ * Commentaires de 1er niveau d’une vidéo
  */
 exports.getVideoMemories = async (req, res) => {
   try {

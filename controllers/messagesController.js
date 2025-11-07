@@ -1,4 +1,4 @@
-// controllers/messagesController.js
+// controllers/messagesController.js - VERSION CORRIGÉE
 const Message = require('../models/Message');
 const Friendship = require('../models/Friendship');
 const LogAction = require('../models/LogAction');
@@ -13,7 +13,76 @@ exports.getConversations = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     
-    const conversations = await Message.getConversations(userId);
+    //  CORRECTION: Utiliser new mongoose.Types.ObjectId au lieu de mongoose.Types.ObjectId()
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    
+    const conversations = await Message.aggregate([
+      {
+        $match: {
+          $or: [
+            { sender: userObjectId },
+            { receiver: userObjectId }
+          ],
+          deleted: false
+        }
+      },
+      {
+        $sort: { created_date: -1 }
+      },
+      {
+        $group: {
+          _id: {
+            $cond: [
+              { $eq: ['$sender', userObjectId] },
+              '$receiver',
+              '$sender'
+            ]
+          },
+          lastMessage: { $first: '$$ROOT' },
+          unreadCount: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$receiver', userObjectId] },
+                    { $eq: ['$read', false] }
+                  ]
+                },
+                1,
+                0
+              ]
+            }
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'participant'
+        }
+      },
+      {
+        $unwind: '$participant'
+      },
+      {
+        $project: {
+          participant: {
+            _id: 1,
+            nom: 1,
+            prenom: 1,
+            email: 1,
+            photo_profil: 1
+          },
+          lastMessage: 1,
+          unreadCount: 1
+        }
+      },
+      {
+        $sort: { 'lastMessage.created_date': -1 }
+      }
+    ]);
     
     res.status(200).json({
       success: true,
@@ -29,7 +98,7 @@ exports.getConversations = async (req, res) => {
 };
 
 /**
- * @desc    Récupérer les messages d'une conversation
+ *  CORRECTION: Récupérer les messages d'une conversation
  * @route   GET /api/messages/:friendId
  * @access  Private
  */
@@ -41,7 +110,15 @@ exports.getMessages = async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
     
-    // Vérifier si les utilisateurs sont amis
+    //  Validation de l'ID
+    if (!mongoose.Types.ObjectId.isValid(friendId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid friend ID'
+      });
+    }
+    
+    //  CORRECTION: Vérifier si les utilisateurs sont amis avec la nouvelle structure
     const areFriends = await Friendship.areFriends(userId, friendId);
     if (!areFriends) {
       return res.status(403).json({
@@ -105,7 +182,7 @@ exports.getMessages = async (req, res) => {
 };
 
 /**
- * @desc    Envoyer un message
+ *  CORRECTION: Envoyer un message
  * @route   POST /api/messages
  * @access  Private
  */
@@ -121,7 +198,15 @@ exports.sendMessage = async (req, res) => {
       });
     }
     
-    // Vérifier si les utilisateurs sont amis
+    //  Validation de l'ID
+    if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid receiver ID'
+      });
+    }
+    
+    //  CORRECTION: Vérifier si les utilisateurs sont amis avec la nouvelle structure
     const areFriends = await Friendship.areFriends(userId, receiverId);
     if (!areFriends) {
       return res.status(403).json({
@@ -164,6 +249,14 @@ exports.markMessageAsRead = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const { messageId } = req.params;
     
+    //  Validation de l'ID
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid message ID'
+      });
+    }
+    
     const message = await Message.findOne({
       _id: messageId,
       receiver: userId
@@ -201,6 +294,14 @@ exports.deleteMessage = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { messageId } = req.params;
+    
+    //  Validation de l'ID
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid message ID'
+      });
+    }
     
     const message = await Message.findOne({
       _id: messageId,
