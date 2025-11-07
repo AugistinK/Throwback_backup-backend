@@ -1,59 +1,27 @@
-
+// ================================
 // routes/api/memories.js
+// ================================
 
 const express = require('express');
 const router = express.Router();
+const memoryController = require('../../controllers/memoryController');
+const { protect } = require('../../middlewares/authMiddleware');
 
-// --- Imports robustes (et logs) ---
-let memoryController;
-try {
-  memoryController = require('../../controllers/memoryController'); // ajuste si ton chemin diffère
-} catch (e) {
-  console.error('[memories] Impossible de charger memoryController:', e.message);
-  memoryController = {};
-}
+// Liste générale (fallback/debug)
+router.get('/', memoryController.getAllMemories);
 
-let protectImported = {};
-try {
-  protectImported = require('../../middlewares/authMiddleware'); 
-} catch (e) {
-  console.warn('[memories] Impossible de charger authMiddleware:', e.message);
-}
-const protect = typeof protectImported?.protect === 'function'
-  ? protectImported.protect
-  : (req, res, next) => {
-      console.warn('[memories] protect indisponible -> middleware neutralisé (autorise tout)');
-      next();
-    };
-
-// --- Outil de vérification des handlers ---
-function assertHandler(fn, label) {
-  if (typeof fn !== 'function') {
-    console.error(`[memories] Handler invalide pour ${label} -> type=${typeof fn}`);
-    // on renvoie un 500 explicite au lieu de crasher Express
-    return (req, res) => res.status(500).json({ success: false, message: `Handler invalide: ${label}` });
-  }
-  return fn;
-}
-
-// --- Logs de contrôle (tu peux commenter après debug) ---
-console.log('[memories] contrôleur clés:', Object.keys(memoryController || {}));
-console.log('[memories] protect est une fonction ?', typeof protect === 'function');
-
-// --- Routes ---
-// Liste générale
-router.get('/', assertHandler(memoryController.getAllMemories, 'getAllMemories'));
-
-// Interactions souvenirs
-router.post('/:id/like',    protect, assertHandler(memoryController.likeMemory,    'likeMemory'));
-router.post('/:id/dislike', protect, assertHandler(memoryController.dislikeMemory, 'dislikeMemory'));
-router.delete('/:id',       protect, assertHandler(memoryController.deleteMemory,  'deleteMemory'));
+// Interactions souvenirs (commentaire OU réponse = même modèle)
+router.post('/:id/like', protect, memoryController.likeMemory);
+router.post('/:id/dislike', protect, memoryController.dislikeMemory);
+router.delete('/:id', protect, memoryController.deleteMemory);
 
 // Replies
-router.get('/:id/replies',             assertHandler(memoryController.getMemoryReplies, 'getMemoryReplies'));
-router.post('/:id/replies', protect,   assertHandler(memoryController.addReply,        'addReply'));
+router.get('/:id/replies', memoryController.getMemoryReplies);
+router.post('/:id/replies', protect, memoryController.addReply);
 
-// Signalement
-router.post('/:id/report',  protect,   assertHandler(memoryController.reportMemory,    'reportMemory'));
+// Signalement (maintenant implémenté)
+router.post('/:id/report', protect, memoryController.reportMemory);
 
 module.exports = router;
+
+

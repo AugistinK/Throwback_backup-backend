@@ -1,5 +1,7 @@
 // ================================
-// controllers/memoryController.js correction du 2025-07
+// controllers/memoryController.js
+// (corrigé : ajout de reportMemory pour éviter
+//  "Route.post() requires a callback function but got a [object Undefined]")
 // ================================
 
 const Comment = require('../models/Comment'); 
@@ -459,5 +461,58 @@ exports.reportMemory = async (req, res) => {
     console.error('Erreur reportMemory:', err);
     res.status(500).json({ success: false, message: "Erreur lors du signalement" });
   }
+};
+
+
+// 
+// === AJOUT: getRecentMemories ===
+exports.getRecentMemories = async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    const items = await Comment.find({ statut: 'ACTIF', parent_comment: null })
+      .populate('auteur', 'nom prenom photo_profil')
+      .populate('video_id', 'titre artiste annee')
+      .sort({ creation_date: -1 })
+      .limit(parseInt(limit));
+
+    const data = items.map(m => ({
+      id: m._id,
+      content: m.contenu || '',
+      createdAt: m.creation_date,
+      likes: m.likes || 0,
+      dislikes: m.dislikes || 0,
+      author: m.auteur ? {
+        id: m.auteur._id,
+        nom: m.auteur.nom,
+        prenom: m.auteur.prenom,
+        photo: m.auteur.photo_profil
+      } : null,
+      video: m.video_id ? {
+        id: m.video_id._id,
+        titre: m.video_id.titre,
+        artiste: m.video_id.artiste,
+        annee: m.video_id.annee
+      } : null
+    }));
+
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error('Erreur getRecentMemories:', err);
+    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des souvenirs récents' });
+  }
+};
+
+// Optionnel: export explicite (évite les surprises)
+module.exports = {
+  getVideoMemories: exports.getVideoMemories,
+  getAllMemories: exports.getAllMemories,
+  addMemory: exports.addMemory,
+  deleteMemory: exports.deleteMemory,
+  likeMemory: exports.likeMemory,
+  dislikeMemory: exports.dislikeMemory,
+  getMemoryReplies: exports.getMemoryReplies,
+  addReply: exports.addReply,
+  reportMemory: exports.reportMemory,
+  getRecentMemories: exports.getRecentMemories
 };
 
