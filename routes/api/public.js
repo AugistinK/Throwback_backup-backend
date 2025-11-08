@@ -31,21 +31,9 @@ router.get('/memories/recent', memoryController.getRecentMemories);
 router.get('/memories/:id/replies', memoryController.getMemoryReplies);
 router.post('/memories/:id/replies', protect, memoryController.addReply);
 
-//  Ajout des routes publiques manquantes pour like/dislike/delete d’un souvenir/réponse
+// ⚠️ Ajout des routes publiques manquantes pour like/dislike/delete d’un souvenir/réponse
 router.post('/memories/:id/like', protect, memoryController.likeMemory);
 router.post('/memories/:id/dislike', protect, memoryController.dislikeMemory);
 router.delete('/memories/:id', protect, memoryController.deleteMemory);
 
-// souvenirs récents ( nécessite getRecentMemories côté controller)
-publicRouter.get('/memories/recent', (req, res, next) => {
-  if (typeof memoryController.getRecentMemories !== 'function') {
-    return res.status(500).json({ success: false, message: 'Handler getRecentMemories manquant' });
-  }
-  return memoryController.getRecentMemories(req, res, next);
-});
-
 module.exports = router;
-
-
-
-

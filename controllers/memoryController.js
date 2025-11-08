@@ -1,9 +1,4 @@
-// ================================
 // controllers/memoryController.js
-// (corrigé : ajout de reportMemory pour éviter
-//  "Route.post() requires a callback function but got a [object Undefined]")
-// ================================
-
 const Comment = require('../models/Comment'); 
 const Video = require('../models/Video');
 const User = require('../models/User');
@@ -12,7 +7,7 @@ const mongoose = require('mongoose');
 
 /**
  * GET /api/videos/:id/memories
- * Commentaires de 1er niveau d’une vidéo
+ * Commentaires de 1er niveau d’une vidéo (filtrage STRICT)
  */
 exports.getVideoMemories = async (req, res) => {
   try {
@@ -411,108 +406,34 @@ exports.addReply = async (req, res) => {
 };
 
 /**
- * POST /api/memories/:id/report
- * - permet à un utilisateur connecté de signaler un souvenir (ou une réponse)
- * - empêche les doublons de signalement par le même utilisateur
+ * GET /api/public/memories/recent
  */
-exports.reportMemory = async (req, res) => {
-  try {
-    const { id: memoryId } = req.params;
-    const userId = req.user?._id || req.user?.id;
-    const { motif = 'inapproprié', details = '' } = req.body || {};
-
-    if (!userId) return res.status(401).json({ success: false, message: 'Utilisateur non authentifié' });
-
-    const memory = await Comment.findById(memoryId);
-    if (!memory) return res.status(404).json({ success: false, message: 'Souvenir non trouvé' });
-
-    // Normaliser le champ signale_par
-    if (!Array.isArray(memory.signale_par)) memory.signale_par = [];
-
-    const already = memory.signale_par.some(entry => {
-      if (entry && typeof entry === 'object') {
-        return (entry.user && (entry.user.equals?.(userId) || `${entry.user}` === `${userId}`));
-      }
-      return `${entry}` === `${userId}`; // compat ancien format [ObjectId]
-    });
-
-    if (already) {
-      return res.status(200).json({ success: true, message: 'Souvenir déjà signalé par cet utilisateur' });
-    }
-
-    // Pousser un objet plus riche (compat ancien schéma si juste ObjectId)
-    memory.signale_par.push({ user: userId, motif, details, date: new Date() });
-    await memory.save();
-
-    try {
-      await LogAction.create({
-        type_action: 'SOUVENIR_SIGNALE',
-        description_action: 'Souvenir signalé',
-        id_user: userId,
-        ip_address: req.ip,
-        user_agent: req.headers['user-agent'],
-        created_by: userId,
-        donnees_supplementaires: { memoire_id: memoryId, motif, details }
-      });
-    } catch {}
-
-    res.status(201).json({ success: true, message: 'Signalement enregistré' });
-  } catch (err) {
-    console.error('Erreur reportMemory:', err);
-    res.status(500).json({ success: false, message: "Erreur lors du signalement" });
-  }
-};
-
-
-// 
-// === AJOUT: getRecentMemories ===
 exports.getRecentMemories = async (req, res) => {
   try {
-    const { limit = 20 } = req.query;
-    const items = await Comment.find({ statut: 'ACTIF', parent_comment: null })
-      .populate('auteur', 'nom prenom photo_profil')
-      .populate('video_id', 'titre artiste annee')
-      .sort({ creation_date: -1 })
-      .limit(parseInt(limit));
+    const { limit = 10 } = req.query;
 
-    const data = items.map(m => ({
-      id: m._id,
-      content: m.contenu || '',
-      createdAt: m.creation_date,
-      likes: m.likes || 0,
-      dislikes: m.dislikes || 0,
-      author: m.auteur ? {
-        id: m.auteur._id,
-        nom: m.auteur.nom,
-        prenom: m.auteur.prenom,
-        photo: m.auteur.photo_profil
-      } : null,
-      video: m.video_id ? {
-        id: m.video_id._id,
-        titre: m.video_id.titre,
-        artiste: m.video_id.artiste,
-        annee: m.video_id.annee
-      } : null
+    const memories = await Comment.find({ statut: 'ACTIF', parent_comment: null })
+      .sort({ creation_date: -1 })
+      .limit(parseInt(limit))
+      .populate('auteur', 'nom prenom photo_profil')
+      .populate('video_id', 'titre artiste annee');
+
+    const formatted = await Promise.all(memories.map(async (m) => {
+      const replyCount = await Comment.countDocuments({ parent_comment: m._id, statut: 'ACTIF' });
+      return {
+        _id: m._id,
+        auteur: m.auteur || { nom: '', prenom: '' },
+        video: m.video_id || { titre: '', artiste: '', annee: '' },
+        contenu: m.contenu || '',
+        likes: m.likes || 0,
+        nb_commentaires: replyCount,
+        creation_date: m.creation_date
+      };
     }));
 
-    res.status(200).json({ success: true, data });
+    res.status(200).json({ success: true, data: formatted });
   } catch (err) {
-    console.error('Erreur getRecentMemories:', err);
-    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des souvenirs récents' });
+    console.error("Erreur getRecentMemories:", err);
+    res.status(500).json({ success: false, message: "Erreur lors de la récupération des souvenirs récents" });
   }
 };
-
-// Optionnel: export explicite (évite les surprises)
-module.exports = {
-  getVideoMemories: exports.getVideoMemories,
-  getAllMemories: exports.getAllMemories,
-  addMemory: exports.addMemory,
-  deleteMemory: exports.deleteMemory,
-  likeMemory: exports.likeMemory,
-  dislikeMemory: exports.dislikeMemory,
-  getMemoryReplies: exports.getMemoryReplies,
-  addReply: exports.addReply,
-  reportMemory: exports.reportMemory,
-  getRecentMemories: exports.getRecentMemories
-};
-
