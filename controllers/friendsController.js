@@ -1,4 +1,4 @@
-// controllers/friendsController.js - VERSION CORRIGÉE
+// controllers/friendsController.js - 
 const Friendship = require('../models/Friendship');
 const User = require('../models/User');
 const LogAction = require('../models/LogAction');
@@ -29,7 +29,6 @@ exports.getFriends = async (req, res) => {
 };
 
 /**
- *  CORRECTION CRITIQUE: Récupérer les demandes d'amis en attente
  * @route   GET /api/friends/requests
  * @access  Private
  */
@@ -112,7 +111,7 @@ exports.getFriendSuggestions = async (req, res) => {
       ville: currentUser.ville,
       statut_compte: 'ACTIF'
     })
-    .limit(30)
+    .limit(50)
     .select('nom prenom email photo_profil ville')
     .lean(); 
 
@@ -136,7 +135,6 @@ exports.getFriendSuggestions = async (req, res) => {
 };
 
 /**
- *  CORRECTION: Envoyer une demande d'ami
  * @route   POST /api/friends/request
  * @access  Private
  */
@@ -162,7 +160,6 @@ exports.sendFriendRequest = async (req, res, next) => {
 };
 
 /**
- *  CORRECTION CRITIQUE: Accepter une demande d'ami
  * @route   PUT /api/friends/accept/:friendshipId
  * @access  Private
  */
@@ -188,7 +185,7 @@ exports.acceptFriendRequest = async (req, res) => {
       });
     }
       
-    //  CORRECTION: Chercher par receiver (celui qui reçoit la demande)
+    
     const friendship = await Friendship.findOne({
       _id: friendshipId,
       receiver: userId,
@@ -234,7 +231,6 @@ exports.acceptFriendRequest = async (req, res) => {
 };
 
 /**
- *  CORRECTION: Refuser une demande d'ami
  * @route   DELETE /api/friends/reject/:friendshipId
  * @access  Private
  */
@@ -251,7 +247,6 @@ exports.rejectFriendRequest = async (req, res) => {
       });
     }
     
-    //  CORRECTION: Chercher par receiver
     const friendship = await Friendship.findOneAndDelete({
       _id: friendshipId,
       receiver: userId,
@@ -287,7 +282,6 @@ exports.rejectFriendRequest = async (req, res) => {
 };
 
 /**
- *  CORRECTION: Retirer un ami
  * @route   DELETE /api/friends/remove/:friendId
  * @access  Private
  */
