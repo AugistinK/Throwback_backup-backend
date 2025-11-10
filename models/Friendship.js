@@ -1,4 +1,4 @@
-// models/Friendship.js - VERSION CORRIGÉE
+// models/Friendship.js - 
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
 

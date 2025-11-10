@@ -48,9 +48,9 @@ exports.getFriendRequests = async (req, res) => {
       const sender = request.requester;
       
       return {
-        _id: request._id.toString(),              //  ID du document Friendship
-        friendshipId: request._id.toString(),     //  Alias pour clarté
-        senderId: sender._id.toString(),          //  ID de l'expéditeur séparé
+        _id: request._id.toString(),              
+        friendshipId: request._id.toString(),     
+        senderId: sender._id.toString(),          
         nom: sender.nom || 'Utilisateur inconnu',
         prenom: sender.prenom || '',
         email: sender.email || '',
@@ -140,75 +140,25 @@ exports.getFriendSuggestions = async (req, res) => {
  * @route   POST /api/friends/request
  * @access  Private
  */
-exports.sendFriendRequest = async (req, res) => {
+exports.sendFriendRequest = async (req, res, next) => {
   try {
-    const userId = req.user.id || req.user._id;
+    const requester = req.user && (req.user._id || req.user.id);
     const { friendId } = req.body;
-    
-    if (!friendId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Friend ID is required'
-      });
+
+    if (!mongoose.Types.ObjectId.isValid(requester) ||
+        !mongoose.Types.ObjectId.isValid(friendId) ||
+        String(requester) === String(friendId)) {
+      return res.status(400).json({ success:false, message:'IDs invalides' });
     }
-    
-    if (userId.toString() === friendId.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: 'You cannot send a friend request to yourself'
-      });
-    }
-    
-    //  Vérifier si une relation existe déjà
-    const existingFriendship = await Friendship.findOne({
-      $or: [
-        { requester: userId, receiver: friendId },
-        { requester: friendId, receiver: userId }
-      ]
-    });
-    
-    if (existingFriendship) {
-      let message = 'Friend request already exists';
-      if (existingFriendship.status === 'accepted') {
-        message = 'You are already friends';
-      } else if (existingFriendship.status === 'blocked') {
-        message = 'Cannot send friend request';
-      }
-      
-      return res.status(400).json({
-        success: false,
-        message
-      });
-    }
-    
-    //  Créer la demande avec la nouvelle structure
-    const friendship = await Friendship.create({
-      requester: userId,
-      receiver: friendId,
-      status: 'pending',
-      created_by: userId
-    });
-    
-    // Log
-    await LogAction.create({
-      type_action: 'FRIEND_REQUEST_SENT',
-      description_action: `Friend request sent to user ${friendId}`,
-      id_user: userId,
-      created_by: 'SYSTEM'
-    });
-    
-    res.status(201).json({
-      success: true,
-      message: 'Friend request sent successfully',
-      data: friendship
-    });
-  } catch (error) {
-    console.error('Error in sendFriendRequest:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de l\'envoi de la demande'
-    });
-  }
+
+    const doc = await Friendship.findOneAndUpdate(
+      { requester, receiver: friendId },
+      { $setOnInsert: { requester, receiver: friendId, status: 'pending', created_by: String(requester) } },
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    return res.status(201).json({ success:true, data: doc });
+  } catch (e) { return next(e); }
 };
 
 /**

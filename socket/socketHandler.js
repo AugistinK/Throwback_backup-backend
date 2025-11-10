@@ -5,8 +5,8 @@ const Message = require('../models/Message');
 const Friendship = require('../models/Friendship');
 
 // Stockage en mémoire des utilisateurs connectés
-const onlineUsers = new Map(); // userId -> socketId
-const userSockets = new Map(); // socketId -> userId
+const onlineUsers = new Map(); 
+const userSockets = new Map(); 
 
 /**
  * Middleware d'authentification Socket.IO
@@ -39,7 +39,7 @@ const authenticateSocket = async (socket, next) => {
  * Initialiser Socket.IO
  */
 const initializeSocketIO = (io) => {
-  console.log('🔌 Initializing Socket.IO...');
+  console.log(' Initializing Socket.IO...');
 
   // Middleware d'authentification
   io.use(authenticateSocket);

@@ -52,9 +52,9 @@ const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin: [
-      process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com',
-      'https://testfrontend.throwback-connect.com',
-      'http://localhost:3000'
+process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com',
+'https://testfrontend.throwback-connect.com',
+'http://localhost:3000'
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
@@ -199,7 +199,7 @@ app.use((req, res, next) => {
   ) {
     console.log(` Route importante détectée: ${req.method} ${req.url}`);
     if (req.body && Object.keys(req.body).length > 0) {
-      console.log(' Body:', req.body);
+console.log(' Body:', req.body);
     }
   }
   next();
@@ -237,15 +237,15 @@ mongoose.connect(process.env.MONGO_URI, {
   // Cleanup automatique
   if (process.env.ENABLE_STREAM_CLEANUP !== 'false') {
     try {
-      console.log("🧹 Initialisation du système de nettoyage automatique des streams...");
-      streamCleanupService = initializeStreamCleanup();
-      console.log(" Système de nettoyage automatique des streams initialisé");
-      console.log("    Tâches automatiques actives:");
-      console.log("      - Nettoyage des statuts: toutes les minutes");
-      console.log("      - Statistiques: toutes les 6 heures");
-      console.log("      - Maintenance: tous les jours à 3h00");
+console.log("🧹 Initialisation du système de nettoyage automatique des streams...");
+streamCleanupService = initializeStreamCleanup();
+console.log(" Système de nettoyage automatique des streams initialisé");
+console.log("    Tâches automatiques actives:");
+console.log("- Nettoyage des statuts: toutes les minutes");
+console.log("- Statistiques: toutes les 6 heures");
+console.log("- Maintenance: tous les jours à 3h00");
     } catch (error) {
-      console.error(" Erreur init cleanup:", error);
+console.error(" Erreur init cleanup:", error);
     }
   } else {
     console.log("  Système de nettoyage automatique désactivé par variable d'environnement");
@@ -254,18 +254,18 @@ mongoose.connect(process.env.MONGO_URI, {
   // Playlist stats
   if (process.env.ENABLE_PLAYLIST_STATS !== 'false') {
     try {
-      console.log(" Initialisation du service de statistiques des playlists...");
-      playlistStatsService = initPlaylistStatsService();
-      setTimeout(() => {
-        if (playlistStatsService.start()) {
-          console.log(" Service de statistiques des playlists démarré avec succès");
-          console.log("    Tâches actives: tendances 3h, lectures 30m, reco 4h00");
-        } else {
-          console.error(" Échec du démarrage du service de statistiques playlists");
-        }
-      }, 5000);
+console.log(" Initialisation du service de statistiques des playlists...");
+playlistStatsService = initPlaylistStatsService();
+setTimeout(() => {
+  if (playlistStatsService.start()) {
+    console.log(" Service de statistiques des playlists démarré avec succès");
+    console.log("    Tâches actives: tendances 3h, lectures 30m, reco 4h00");
+  } else {
+    console.error(" Échec du démarrage du service de statistiques playlists");
+  }
+}, 5000);
     } catch (error) {
-      console.error(" Erreur init playlist stats:", error);
+console.error(" Erreur init playlist stats:", error);
     }
   } else {
     console.log("  Service de statistiques des playlists désactivé par variable d'environnement");
@@ -281,20 +281,20 @@ const extractUser = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     let token;
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
+token = authHeader.split(' ')[1];
     } else if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
+token = req.cookies.token;
     }
     if (token) {
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded;
-      } catch (error) {
-        console.error("  Erreur de vérification du token:", error.message);
-        req.user = null;
-      }
+try {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  req.user = decoded;
+} catch (error) {
+  console.error("  Erreur de vérification du token:", error.message);
+  req.user = null;
+}
     } else {
-      req.user = null;
+req.user = null;
     }
     next();
   } catch (error) {
@@ -307,8 +307,8 @@ const extractUser = async (req, res, next) => {
 const protect = async (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({
-      success: false,
-      message: 'Access denied. No token provided.'
+success: false,
+message: 'Access denied. No token provided.'
     });
   }
   next();
@@ -344,31 +344,31 @@ app.get('/api/health', (req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: {
-      seconds: Math.floor(uptime),
-      human: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`
+seconds: Math.floor(uptime),
+human: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`
     },
     memory: {
-      used: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
-      total: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`
+used: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
+total: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`
     },
     environment: process.env.NODE_ENV || 'development',
     mongodb: {
-      status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-      database: mongoose.connection.db?.databaseName
+status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+database: mongoose.connection.db?.databaseName
     },
     socketio: {
-      status: 'active',
-      onlineUsers: getOnlineUsersCount(),
-      transport: 'websocket/polling'
+status: 'active',
+onlineUsers: getOnlineUsersCount(),
+transport: 'websocket/polling'
     },
     services: {
-      streamCleanup: streamCleanupService ? 'active' : 'inactive',
-      streamScheduler: streamSchedulerService ? 'active' : 'inactive',
-      playlistStats: playlistStatsService ? 'active' : 'inactive'
+streamCleanup: streamCleanupService ? 'active' : 'inactive',
+streamScheduler: streamSchedulerService ? 'active' : 'inactive',
+playlistStats: playlistStatsService ? 'active' : 'inactive'
     },
     configuration: {
-      trustProxy: app.get('trust proxy'),
-      strictQuery: 'false'
+trustProxy: app.get('trust proxy'),
+strictQuery: 'false'
     }
   });
 });
@@ -384,19 +384,19 @@ app.get('/api/status/online-users', (req, res) => {
 app.get('/api/health/streams', (req, res) => {
   try {
     if (!streamCleanupService) {
-      return res.status(503).json({ 
-        status: 'unavailable', 
-        message: 'Stream cleanup service not initialized' 
-      });
+return res.status(503).json({ 
+  status: 'unavailable', 
+  message: 'Stream cleanup service not initialized' 
+});
     }
     const health = healthCheck();
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'warning' ? 200 : 500;
     res.status(statusCode).json(health);
   } catch (error) {
     res.status(500).json({ 
-      status: 'error', 
-      message: 'Health check failed', 
-      error: error.message 
+status: 'error', 
+message: 'Health check failed', 
+error: error.message 
     });
   }
 });
@@ -404,19 +404,19 @@ app.get('/api/health/streams', (req, res) => {
 app.get('/api/health/playlists', (req, res) => {
   try {
     if (!playlistStatsService) {
-      return res.status(503).json({ 
-        status: 'unavailable', 
-        message: 'Playlist stats service not initialized' 
-      });
+return res.status(503).json({ 
+  status: 'unavailable', 
+  message: 'Playlist stats service not initialized' 
+});
     }
     const health = playlistStatsService.healthCheck();
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'warning' ? 200 : 500;
     res.status(statusCode).json(health);
   } catch (error) {
     res.status(500).json({ 
-      status: 'error', 
-      message: 'Playlist health check failed', 
-      error: error.message 
+status: 'error', 
+message: 'Playlist health check failed', 
+error: error.message 
     });
   }
 });
@@ -424,22 +424,22 @@ app.get('/api/health/playlists', (req, res) => {
 app.get('/api/admin/stream-tasks/status', protect, (req, res) => {
   if (!streamCleanupService) {
     return res.status(503).json({ 
-      success: false, 
-      message: 'Stream cleanup service not initialized' 
+success: false, 
+message: 'Stream cleanup service not initialized' 
     });
   }
   try {
     const stats = getStats();
     const health = healthCheck();
     res.json({ 
-      success: true, 
-      data: { stats, health, tasksInitialized: true } 
+success: true, 
+data: { stats, health, tasksInitialized: true } 
     });
   } catch (error) {
     res.status(500).json({ 
-      success: false, 
-      message: 'Error getting task status', 
-      error: error.message 
+success: false, 
+message: 'Error getting task status', 
+error: error.message 
     });
   }
 });
@@ -447,22 +447,22 @@ app.get('/api/admin/stream-tasks/status', protect, (req, res) => {
 app.post('/api/admin/stream-tasks/cleanup', protect, async (req, res) => {
   if (!streamCleanupService) {
     return res.status(503).json({ 
-      success: false, 
-      message: 'Stream cleanup service not initialized' 
+success: false, 
+message: 'Stream cleanup service not initialized' 
     });
   }
   try {
     const result = await streamCleanupService.runManualCleanup();
     res.json({ 
-      success: true, 
-      message: 'Manual cleanup completed', 
-      data: result 
+success: true, 
+message: 'Manual cleanup completed', 
+data: result 
     });
   } catch (error) {
     res.status(500).json({ 
-      success: false, 
-      message: 'Error running manual cleanup', 
-      error: error.message 
+success: false, 
+message: 'Error running manual cleanup', 
+error: error.message 
     });
   }
 });
@@ -537,10 +537,10 @@ app.post('/api/public/videos/:id/like', protect, (req, res, next) => {
     success: true, 
     message: "Like enregistré (simulation)", 
     data: { 
-      liked: true, 
-      disliked: false, 
-      likes: Math.floor(Math.random() * 100) + 1, 
-      dislikes: 0 
+liked: true, 
+disliked: false, 
+likes: Math.floor(Math.random() * 100) + 1, 
+dislikes: 0 
     } 
   });
 });
@@ -672,14 +672,14 @@ try {
   app.use('/api/friends', friendsRoutes);
   console.log(" Routes FRIENDS chargées avec succès");
   console.log("    Routes disponibles:");
-  console.log("      - GET    /api/friends");
-  console.log("      - GET    /api/friends/requests");
-  console.log("      - GET    /api/friends/suggestions");
-  console.log("      - GET    /api/friends/stats");
-  console.log("      - POST   /api/friends/request");
-  console.log("      - PUT    /api/friends/accept/:friendshipId");
-  console.log("      - DELETE /api/friends/reject/:friendshipId");
-  console.log("      - DELETE /api/friends/remove/:friendId");
+  console.log("- GET    /api/friends");
+  console.log("- GET    /api/friends/requests");
+  console.log("- GET    /api/friends/suggestions");
+  console.log("- GET    /api/friends/stats");
+  console.log("- POST   /api/friends/request");
+  console.log("- PUT    /api/friends/accept/:friendshipId");
+  console.log("- DELETE /api/friends/reject/:friendshipId");
+  console.log("- DELETE /api/friends/remove/:friendId");
 } catch (error) {
   console.error(" ERREUR CRITIQUE: Routes friends non chargées:", error.message);
   console.error("   Stack:", error.stack);
@@ -690,10 +690,10 @@ try {
   app.use('/api/messages', messagesRoutes);
   console.log(" Routes MESSAGES chargées avec succès");
   console.log("    Routes disponibles:");
-  console.log("      - GET  /api/messages/conversations");
-  console.log("      - GET  /api/messages/:friendId");
-  console.log("      - POST /api/messages");
-  console.log("      - GET  /api/messages/unread/count");
+  console.log("- GET  /api/messages/conversations");
+  console.log("- GET  /api/messages/:friendId");
+  console.log("- POST /api/messages");
+  console.log("- GET  /api/messages/unread/count");
 } catch (error) {
   console.error(" ERREUR CRITIQUE: Routes messages non chargées:", error.message);
   console.error("   Stack:", error.stack);
@@ -751,22 +751,22 @@ try {
   app.get('/api/video-info', (req, res) => {
     const { url, id, source } = req.query;
     if (!url || !id || !source) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'URL, ID et source sont requis' 
-      });
+return res.status(400).json({ 
+  success: false, 
+  message: 'URL, ID et source sont requis' 
+});
     }
     res.json({
-      success: true,
-      title: `Vidéo ${source} - ${id}`,
-      description: 'Description simulée pour cette vidéo (mode développement)',
-      thumbnail: source === 'youtube' 
-        ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` 
-        : '/images/video-placeholder.jpg',
-      duration: '3:45',
-      channel: 'Chaîne simulée',
-      publishedAt: new Date().toISOString(),
-      simulatedData: true
+success: true,
+title: `Vidéo ${source} - ${id}`,
+description: 'Description simulée pour cette vidéo (mode développement)',
+thumbnail: source === 'youtube' 
+  ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` 
+  : '/images/video-placeholder.jpg',
+duration: '3:45',
+channel: 'Chaîne simulée',
+publishedAt: new Date().toISOString(),
+simulatedData: true
     });
   });
 }
@@ -780,22 +780,22 @@ try {
 
   const swaggerOptions = {
     definition: {
-      openapi: '3.0.0',
-      info: {
-        title: 'ThrowBack API',
-        version: '2.5.0',
-        description: 'API de la plateforme ThrowBack avec Socket.IO',
-        contact: { 
-          name: 'Équipe ThrowBack', 
-          email: 'contact@throwback.com' 
-        }
-      },
-      servers: [
-        { 
-          url: process.env.BACKEND_URL || 'http://localhost:5000', 
-          description: 'Serveur principal' 
-        }
-      ]
+openapi: '3.0.0',
+info: {
+  title: 'ThrowBack API',
+  version: '2.5.0',
+  description: 'API de la plateforme ThrowBack avec Socket.IO',
+  contact: { 
+    name: 'Équipe ThrowBack', 
+    email: 'contact@throwback.com' 
+  }
+},
+servers: [
+  { 
+    url: process.env.BACKEND_URL || 'http://localhost:5000', 
+    description: 'Serveur principal' 
+  }
+]
     },
     apis: ['./routes/api/*.js', './routes/api/admin/*.js', './controllers/*.js']
   };
@@ -831,17 +831,17 @@ app.get('/api/test', (req, res) => {
     env: process.env.NODE_ENV || 'development',
     user: req.user ? `${req.user.prenom} ${req.user.nom}` : 'Non connecté',
     socketio: { 
-      status: 'active', 
-      onlineUsers: getOnlineUsersCount() 
+status: 'active', 
+onlineUsers: getOnlineUsersCount() 
     },
     services: {
-      streamCleanup: streamCleanupService ? 'active' : 'inactive',
-      streamScheduler: streamSchedulerService ? 'active' : 'inactive',
-      playlistStats: playlistStatsService ? 'active' : 'inactive'
+streamCleanup: streamCleanupService ? 'active' : 'inactive',
+streamScheduler: streamSchedulerService ? 'active' : 'inactive',
+playlistStats: playlistStatsService ? 'active' : 'inactive'
     },
     configuration: {
-      trustProxy: app.get('trust proxy'),
-      strictQuery: 'false'
+trustProxy: app.get('trust proxy'),
+strictQuery: 'false'
     }
   });
 });
@@ -850,27 +850,27 @@ app.get('/api/test/db', async (req, res) => {
   try {
     const state = mongoose.connection.readyState;
     const states = { 
-      0: 'disconnected', 
-      1: 'connected', 
-      2: 'connecting', 
-      3: 'disconnecting' 
+0: 'disconnected', 
+1: 'connected', 
+2: 'connecting', 
+3: 'disconnecting' 
     };
     const User = mongoose.model('User');
     const userCount = await User.countDocuments();
     res.json({
-      mongodb: {
-        status: states[state],
-        database: mongoose.connection.db?.databaseName,
-        host: mongoose.connection.host,
-        port: mongoose.connection.port,
-        userCount
-      },
-      timestamp: new Date().toISOString()
+mongodb: {
+  status: states[state],
+  database: mongoose.connection.db?.databaseName,
+  host: mongoose.connection.host,
+  port: mongoose.connection.port,
+  userCount
+},
+timestamp: new Date().toISOString()
     });
   } catch (error) {
     res.status(500).json({ 
-      error: 'Database connection error', 
-      message: error.message 
+error: 'Database connection error', 
+message: error.message 
     });
   }
 });
@@ -880,16 +880,16 @@ app.get('/api/test/socketio', (req, res) => {
     message: 'Socket.IO est actif!',
     user: req.user ? `${req.user.prenom} ${req.user.nom}` : 'Non connecté',
     socketio: {
-      status: 'active',
-      onlineUsers: getOnlineUsersCount(),
-      onlineUsersList: getOnlineUsers().slice(0, 10)
+status: 'active',
+onlineUsers: getOnlineUsersCount(),
+onlineUsersList: getOnlineUsers().slice(0, 10)
     },
     features: [
-      'Chat en temps réel',
-      'Notifications instantanées',
-      'Statut en ligne/hors ligne',
-      'Indicateurs de saisie',
-      'Demandes d\'amis en temps réel'
+'Chat en temps réel',
+'Notifications instantanées',
+'Statut en ligne/hors ligne',
+'Indicateurs de saisie',
+'Demandes d\'amis en temps réel'
     ],
     timestamp: new Date().toISOString()
   });
@@ -901,13 +901,13 @@ app.get('/api/test/friends', (req, res) => {
     message: 'Routes Friends Test',
     status: 'OK',
     availableRoutes: {
-      get_friends: 'GET /api/friends',
-      get_requests: 'GET /api/friends/requests',
-      get_suggestions: 'GET /api/friends/suggestions',
-      send_request: 'POST /api/friends/request',
-      accept_request: 'PUT /api/friends/accept/:friendshipId',
-      reject_request: 'DELETE /api/friends/reject/:friendshipId',
-      remove_friend: 'DELETE /api/friends/remove/:friendId'
+get_friends: 'GET /api/friends',
+get_requests: 'GET /api/friends/requests',
+get_suggestions: 'GET /api/friends/suggestions',
+send_request: 'POST /api/friends/request',
+accept_request: 'PUT /api/friends/accept/:friendshipId',
+reject_request: 'DELETE /api/friends/reject/:friendshipId',
+remove_friend: 'DELETE /api/friends/remove/:friendId'
     },
     note: 'Toutes les routes nécessitent une authentification (Bearer token)',
     timestamp: new Date().toISOString()
@@ -923,44 +923,44 @@ app.get("/", (req, res) => {
     version: "2.5.0",
     status: "Opérationnel",
     newFeatures: [
-      " Socket.IO intégré pour le temps réel",
-      " Chat en temps réel",
-      " Notifications instantanées",
-      " Statut en ligne/hors ligne",
-      " Indicateurs de saisie",
-      " Module Playlists complet",
-      " Statistiques avancées",
-      " Sécurité renforcée",
-      " Système d'amis corrigé",
-      " Documentation API intégrée"
+" Socket.IO intégré pour le temps réel",
+" Chat en temps réel",
+" Notifications instantanées",
+" Statut en ligne/hors ligne",
+" Indicateurs de saisie",
+" Module Playlists complet",
+" Statistiques avancées",
+" Sécurité renforcée",
+" Système d'amis corrigé",
+" Documentation API intégrée"
     ],
     endpoints: {
-      auth: "/api/auth/*",
-      videos: "/api/videos/*",
-      friends: "/api/friends/*",
-      messages: "/api/messages/*",
-      playlists: "/api/playlists/*",
-      livestreams: "/api/livestreams/*",
-      health: "/api/health",
-      socketio: "/api/status/online-users",
-      docs: "/api-docs",
-      test: "/api/test/friends"
+auth: "/api/auth/*",
+videos: "/api/videos/*",
+friends: "/api/friends/*",
+messages: "/api/messages/*",
+playlists: "/api/playlists/*",
+livestreams: "/api/livestreams/*",
+health: "/api/health",
+socketio: "/api/status/online-users",
+docs: "/api-docs",
+test: "/api/test/friends"
     },
     services: {
-      socketio: ' Active',
-      streamCleanup: streamCleanupService ? ' Active' : ' Inactive',
-      streamScheduler: streamSchedulerService ? ' Active' : ' Inactive',
-      playlistStats: playlistStatsService ? ' Active' : ' Inactive',
-      database: mongoose.connection.readyState === 1 ? ' Connected' : ' Disconnected'
+socketio: ' Active',
+streamCleanup: streamCleanupService ? ' Active' : ' Inactive',
+streamScheduler: streamSchedulerService ? ' Active' : ' Inactive',
+playlistStats: playlistStatsService ? ' Active' : ' Inactive',
+database: mongoose.connection.readyState === 1 ? ' Connected' : ' Disconnected'
     },
     configuration: {
-      trustProxy: app.get('trust proxy'),
-      strictQuery: 'false',
-      environment: process.env.NODE_ENV || 'development'
+trustProxy: app.get('trust proxy'),
+strictQuery: 'false',
+environment: process.env.NODE_ENV || 'development'
     },
     socketio: { 
-      onlineUsers: getOnlineUsersCount(), 
-      transport: 'websocket/polling' 
+onlineUsers: getOnlineUsersCount(), 
+transport: 'websocket/polling' 
     },
     timestamp: new Date().toISOString()
   });
@@ -979,23 +979,23 @@ app.use((req, res, next) => {
   console.log(` 404 ERROR: ${req.method} ${req.path}`);
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({
-      success: false,
-      message: "Route API non trouvée",
-      path: req.path,
-      method: req.method,
-      suggestion: "Vérifiez l'URL dans la documentation",
-      availableRoutes: [
-        'GET /api/health',
-        'GET /api/status/online-users',
-        'GET /api/friends',
-        'GET /api/friends/requests',
-        'PUT /api/friends/accept/:friendshipId',
-        'GET /api/messages/conversations',
-        'POST /api/messages',
-        'GET /api-docs',
-        'GET /api/test/friends'
-      ],
-      documentation: '/api-docs'
+success: false,
+message: "Route API non trouvée",
+path: req.path,
+method: req.method,
+suggestion: "Vérifiez l'URL dans la documentation",
+availableRoutes: [
+  'GET /api/health',
+  'GET /api/status/online-users',
+  'GET /api/friends',
+  'GET /api/friends/requests',
+  'PUT /api/friends/accept/:friendshipId',
+  'GET /api/messages/conversations',
+  'POST /api/messages',
+  'GET /api-docs',
+  'GET /api/test/friends'
+],
+documentation: '/api-docs'
     });
   }
   res.status(404).json({ 
@@ -1019,8 +1019,8 @@ app.use((err, req, res, next) => {
   
   if (process.env.NODE_ENV === 'development') {
     response.error = { 
-      message: err.message, 
-      stack: err.stack 
+message: err.message, 
+stack: err.stack 
     };
   }
   
@@ -1033,22 +1033,22 @@ const gracefulShutdown = (signal) => {
   httpServer.close(() => {
     console.log(' Serveur HTTP fermé');
     io.close(() => {
-      console.log(' Socket.IO fermé');
-      if (streamCleanupService) {
-        console.log(' Arrêt du service de nettoyage des streams...');
-      }
-      if (streamSchedulerService) {
-        console.log(' Arrêt du service de planification des streams...');
-      }
-      if (playlistStatsService) {
-        console.log(' Arrêt du service de statistiques des playlists...');
-        playlistStatsService.shutdown();
-      }
-      mongoose.connection.close(() => {
-        console.log(' Connexion MongoDB fermée');
-        console.log(' Arrêt complet du serveur ThrowBack');
-        process.exit(0);
-      });
+console.log(' Socket.IO fermé');
+if (streamCleanupService) {
+  console.log(' Arrêt du service de nettoyage des streams...');
+}
+if (streamSchedulerService) {
+  console.log(' Arrêt du service de planification des streams...');
+}
+if (playlistStatsService) {
+  console.log(' Arrêt du service de statistiques des playlists...');
+  playlistStatsService.shutdown();
+}
+mongoose.connection.close(() => {
+  console.log(' Connexion MongoDB fermée');
+  console.log(' Arrêt complet du serveur ThrowBack');
+  process.exit(0);
+});
     });
   });
   
