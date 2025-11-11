@@ -44,6 +44,7 @@ require('./models/Friendship');
 require('./models/Message');
 require('./models/Bookmark');
 require('./models/Memory');
+require('./models/Conversation');
 
 // ===== CRÉATION APP / HTTP / IO =====
 const app = express();
@@ -206,7 +207,7 @@ console.log(' Body:', req.body);
 });
 
 // ===== MongoDB =====
-//  CORRECTION: Configuration strictQuery
+//  : Configuration strictQuery
 mongoose.set('strictQuery', false);
 console.log(' Mongoose strictQuery configured');
 
@@ -665,7 +666,7 @@ const adminPostRoutes = require('./routes/api/adminPostRoutes');
 app.use('/api/admin/posts', adminPostRoutes);
 console.log(" Routes posts et commentaires configurées");
 
-// =====  CORRECTION MAJEURE: Friends & Messages =====
+// =====  Friends & Messages =====
 console.log("\n Configuration des routes amis et messages...");
 try {
   const friendsRoutes = require('./routes/api/friends');
@@ -698,6 +699,11 @@ try {
   console.error(" ERREUR CRITIQUE: Routes messages non chargées:", error.message);
   console.error("   Stack:", error.stack);
 }
+
+// ===== Conversations =====
+
+const conversationsRoutes = require('./routes/api/conversations');
+app.use('/api/conversations', conversationsRoutes);
 
 // ===== Supplémentaires =====
 console.log("\n🔧 Configuration des routes supplémentaires...");
