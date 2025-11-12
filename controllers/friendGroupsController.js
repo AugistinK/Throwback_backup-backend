@@ -1,5 +1,6 @@
-// controllers/friendGroupsController.js
+// controllers/friendGroupsController.js 
 const FriendGroup = require('../models/FriendGroup');
+const Friendship = require('../models/Friendship');
 const LogAction = require('../models/LogAction');
 const mongoose = require('mongoose');
 
@@ -46,10 +47,32 @@ exports.createFriendGroup = async (req, res) => {
       });
     }
     
+    if (!members || members.length < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least 1 participant is required'
+      });
+    }
+    
+    // Vérifier que tous les participants sont amis avec le créateur
+    const friendships = await Promise.all(
+      members.map(p => Friendship.areFriends(userId, p))
+    );
+    
+    if (friendships.some(f => !f)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only add friends to groups'
+      });
+    }
+    
+    // ✅ CORRECTION: Inclure le créateur dans les membres
+    const allMembers = [...new Set([userId, ...members])];
+    
     const group = await FriendGroup.create({
       name: name.trim(),
       owner: userId,
-      members: members || [],
+      members: allMembers,
       color: color || '#b31217',
       description: description || '',
       created_by: userId
@@ -65,9 +88,23 @@ exports.createFriendGroup = async (req, res) => {
       created_by: 'SYSTEM'
     });
     
+    // ✅ CORRECTION: Notifier tous les membres (sauf le créateur)
+    const io = req.app.get('io');
+    if (io) {
+      members.forEach(memberId => {
+        io.to(memberId).emit('group-invitation', {
+          groupId: group._id,
+          groupName: group.name,
+          creatorId: userId,
+          creatorName: req.user ? `${req.user.prenom} ${req.user.nom}` : 'Unknown',
+          timestamp: Date.now()
+        });
+      });
+    }
+    
     res.status(201).json({
       success: true,
-      message: 'Friend group created successfully',
+      message: 'Friend group created successfully. Members have been notified.',
       data: group
     });
   } catch (error) {
@@ -103,7 +140,13 @@ exports.updateFriendGroup = async (req, res) => {
     }
     
     if (name) group.name = name.trim();
-    if (members !== undefined) group.members = members;
+    
+    // ✅ CORRECTION: Toujours inclure le créateur dans les membres
+    if (members !== undefined) {
+      const allMembers = [...new Set([userId, ...members])];
+      group.members = allMembers;
+    }
+    
     if (color) group.color = color;
     if (description !== undefined) group.description = description;
     
@@ -120,6 +163,20 @@ exports.updateFriendGroup = async (req, res) => {
       id_user: userId,
       created_by: 'SYSTEM'
     });
+    
+    // Notifier les nouveaux membres
+    const io = req.app.get('io');
+    if (io && members) {
+      members.forEach(memberId => {
+        if (memberId !== userId) {
+          io.to(memberId).emit('group-updated', {
+            groupId: group._id,
+            groupName: group.name,
+            timestamp: Date.now()
+          });
+        }
+      });
+    }
     
     res.status(200).json({
       success: true,
@@ -211,6 +268,20 @@ exports.addMembersToGroup = async (req, res) => {
     await group.addMembers(memberIds);
     await group.populate('members', 'nom prenom email photo_profil');
     
+    // Notifier les nouveaux membres
+    const io = req.app.get('io');
+    if (io) {
+      memberIds.forEach(memberId => {
+        io.to(memberId).emit('group-invitation', {
+          groupId: group._id,
+          groupName: group.name,
+          creatorId: userId,
+          creatorName: req.user ? `${req.user.prenom} ${req.user.nom}` : 'Unknown',
+          timestamp: Date.now()
+        });
+      });
+    }
+    
     res.status(200).json({
       success: true,
       message: 'Members added successfully',
@@ -252,6 +323,14 @@ exports.removeMembersFromGroup = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Group not found or you are not the owner'
+      });
+    }
+    
+    // Ne pas permettre de retirer le créateur
+    if (memberIds.includes(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot remove the group owner'
       });
     }
     

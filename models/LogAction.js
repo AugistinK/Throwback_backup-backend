@@ -132,7 +132,11 @@ const logActionSchema = new Schema(
         'FRIEND_REQUEST_SENT',
         'FRIEND_REQUEST_ACCEPTED',
         'FRIEND_REQUEST_REJECTED',
-        'FRIEND_REQUEST_SENT'
+        'FRIEND_REQUEST_SENT',
+        'CHAT_ARCHIVED',
+        'CHAT_HISTORY_CLEARED',
+        'USER_REPORTED',
+        'FRIEND_REMOVED'
       
       ]
     },

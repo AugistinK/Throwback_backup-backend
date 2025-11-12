@@ -45,6 +45,7 @@ require('./models/Message');
 require('./models/Bookmark');
 require('./models/Memory');
 require('./models/Conversation');
+require('./models/Report');
 
 // ===== CRÉATION APP / HTTP / IO =====
 const app = express();
@@ -704,6 +705,9 @@ try {
 
 const conversationsRoutes = require('./routes/api/conversations');
 app.use('/api/conversations', conversationsRoutes);
+
+const chatActionsRouter = require('./routes/api/chatActions');
+app.use('/api/chat', chatActionsRouter);
 
 // ===== Supplémentaires =====
 console.log("\n🔧 Configuration des routes supplémentaires...");

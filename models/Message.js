@@ -1,4 +1,4 @@
-// models/Message.js
+// models/Message.js - VERSION FUSIONNÉE
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
 
@@ -38,6 +38,37 @@ const messageSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: 'User'
     }],
+    // ✅ NOUVEAUX CHAMPS pour édition
+    edited: {
+      type: Boolean,
+      default: false
+    },
+    editedAt: {
+      type: Date
+    },
+    editHistory: [{
+      content: String,
+      editedAt: Date
+    }],
+    // ✅ NOUVEAUX CHAMPS pour transfert
+    forwarded: {
+      type: Boolean,
+      default: false
+    },
+    forwardedFrom: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    // ✅ NOUVEAU CHAMP pour réponse
+    replyTo: {
+      type: Schema.Types.ObjectId,
+      ref: 'Message'
+    },
+    // ✅ NOUVEAU CHAMP pour suppression totale
+    deletedForEveryone: {
+      type: Boolean,
+      default: false
+    },
     created_by: {
       type: String,
       default: 'SYSTEM'

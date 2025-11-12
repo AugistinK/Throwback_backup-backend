@@ -1,4 +1,4 @@
-// models/Conversation.js - NOUVEAU MODÈLE pour supporter les groupes
+// models/Conversation.js - VERSION FUSIONNÉE
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
@@ -178,6 +178,43 @@ conversationSchema.methods.archive = async function(userId) {
 // Méthode pour désarchiver
 conversationSchema.methods.unarchive = async function(userId) {
   this.archivedBy = this.archivedBy.filter(id => id.toString() !== userId.toString());
+  this.modified_date = Date.now();
+  await this.save();
+  return this;
+};
+
+// ✅ NOUVELLES MÉTHODES pour épingler/désépingler
+conversationSchema.methods.pin = async function(userId) {
+  if (!this.pinned.includes(userId)) {
+    this.pinned.push(userId);
+    this.modified_date = Date.now();
+    await this.save();
+  }
+  return this;
+};
+
+conversationSchema.methods.unpin = async function(userId) {
+  this.pinned = this.pinned.filter(id => id.toString() !== userId.toString());
+  this.modified_date = Date.now();
+  await this.save();
+  return this;
+};
+
+// ✅ NOUVELLES MÉTHODES pour mute/unmute
+conversationSchema.methods.mute = async function(userId, until = null) {
+  const existingMute = this.muted.find(m => m.user.toString() === userId.toString());
+  if (existingMute) {
+    existingMute.until = until;
+  } else {
+    this.muted.push({ user: userId, until });
+  }
+  this.modified_date = Date.now();
+  await this.save();
+  return this;
+};
+
+conversationSchema.methods.unmute = async function(userId) {
+  this.muted = this.muted.filter(m => m.user.toString() !== userId.toString());
   this.modified_date = Date.now();
   await this.save();
   return this;
