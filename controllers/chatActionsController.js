@@ -184,7 +184,7 @@ exports.clearChatHistory = async (req, res) => {
 exports.reportUser = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const { reportedUserId, reason, description, messageId } = req.body;
+    const { reportedUserId, reason, description, messageId, resolution, status } = req.body;
 
     if (!reportedUserId || !reason) {
       return res.status(400).json({
@@ -202,16 +202,38 @@ exports.reportUser = async (req, res) => {
       });
     }
 
-    // Créer le signalement
-    const report = await Report.create({
+    // Normalisation/Validation défensive (au cas où un client enverrait une valeur non prévue)
+    const ALLOWED_RESOLUTIONS = new Set([
+      'no_action',
+      'warning',
+      'temporary_ban',
+      'permanent_ban',
+      'deleted_content'
+    ]);
+    const ALLOWED_STATUS = new Set(['pending', 'reviewing', 'resolved', 'dismissed']);
+
+    const payload = {
       reporter: userId,
       reportedUser: reportedUserId,
       reason,
       description: description || '',
-      messageId: messageId || null,
-      status: 'pending',
+      // ne pas mettre messageId si falsy pour éviter de stocker null inutilement
+      ...(messageId ? { messageId } : {}),
       created_by: userId
-    });
+    };
+
+    // status: s'il est fourni et valide, sinon laissez le schéma appliquer 'pending'
+    if (typeof status !== 'undefined' && ALLOWED_STATUS.has(status)) {
+      payload.status = status;
+    }
+
+    // resolution: n'inclure que si valide; sinon laisser le schéma mettre 'no_action'
+    if (typeof resolution !== 'undefined' && ALLOWED_RESOLUTIONS.has(resolution)) {
+      payload.resolution = resolution;
+    }
+
+    // Créer le signalement
+    const report = await Report.create(payload);
 
     // Log action
     await LogAction.create({
