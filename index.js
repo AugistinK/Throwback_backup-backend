@@ -46,6 +46,7 @@ require('./models/Bookmark');
 require('./models/Memory');
 require('./models/Conversation');
 require('./models/Report');
+require('./models/Notification');
 
 // ===== CRÉATION APP / HTTP / IO =====
 const app = express();
@@ -710,7 +711,7 @@ const chatActionsRouter = require('./routes/api/chatActions');
 app.use('/api/chat', chatActionsRouter);
 
 // après avoir configuré app, auth, etc.
-const notificationRoutes = require('./routes/notificationRoutes');
+const notificationRoutes = require('./routes/api/notificationRoutes');
 app.use('/api/notifications', notificationRoutes);
 
 
