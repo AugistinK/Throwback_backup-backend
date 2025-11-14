@@ -227,4 +227,8 @@ router.put('/:conversationId/unmute', protect, async (req, res) => {
   }
 });
 
+router.get('/groups/:groupId/messages', auth, conversationsController.getGroupMessages);
+router.post('/groups/:groupId/messages', auth, conversationsController.sendGroupMessage);
+
+
 module.exports = router;

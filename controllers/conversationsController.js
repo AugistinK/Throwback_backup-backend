@@ -440,4 +440,158 @@ exports.pinConversation = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Récupérer les messages d'un groupe de conversation
+ * @route   GET /api/conversations/groups/:groupId/messages
+ * @access  Private
+ */
+exports.getGroupMessages = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { groupId } = req.params;
+
+    const page  = parseInt(req.query.page, 10)  || 1;
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const skip  = (page - 1) * limit;
+
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid group ID'
+      });
+    }
+
+    // Vérifier que la conversation existe et que l'utilisateur est membre
+    const conversation = await Conversation.findOne({
+      _id: groupId,
+      type: 'group',
+      participants: new mongoose.Types.ObjectId(userId)
+    });
+
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group conversation not found or you are not a member'
+      });
+    }
+
+    const [messages, total] = await Promise.all([
+      Message.find({
+        conversation: conversation._id,
+        deleted: false
+      })
+        .sort({ created_date: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('sender', 'nom prenom email photo_profil'),
+      Message.countDocuments({
+        conversation: conversation._id,
+        deleted: false
+      })
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        messages: messages.reverse(), // chronologique
+        pagination: { page, limit, total, totalPages }
+      }
+    });
+  } catch (error) {
+    console.error('Error in getGroupMessages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des messages du groupe'
+    });
+  }
+};
+
+/**
+ * @desc    Envoyer un message dans un groupe de conversation
+ * @route   POST /api/conversations/groups/:groupId/messages
+ * @access  Private
+ */
+exports.sendGroupMessage = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { groupId } = req.params;
+    const { content, type } = req.body;
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message content is required'
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid group ID'
+      });
+    }
+
+    // Vérifier que la conversation existe et que l'utilisateur est membre
+    const conversation = await Conversation.findOne({
+      _id: groupId,
+      type: 'group',
+      participants: new mongoose.Types.ObjectId(userId)
+    }).populate('participants', '_id');
+
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group conversation not found or you are not a member'
+      });
+    }
+
+    const message = await Message.create({
+      conversation: conversation._id,
+      sender: userId,
+      content: content.trim(),
+      type: type || 'text',
+      created_by: userId
+    });
+
+    await message.populate('sender', 'nom prenom email photo_profil');
+
+    // Log action
+    await LogAction.create({
+      type_action: 'GROUP_MESSAGE_SENT',
+      description_action: `Message sent in group ${conversation.groupName || conversation._id}`,
+      id_user: userId,
+      created_by: 'SYSTEM'
+    });
+
+    // Notifier les membres via Socket.IO
+    const io = req.app.get('io');
+    if (io && conversation.participants && conversation.participants.length > 0) {
+      conversation.participants.forEach((p) => {
+        const pid = p._id ? p._id.toString() : p.toString();
+        if (pid !== userId.toString()) {
+          io.to(pid).emit('group-message', {
+            groupId: conversation._id.toString(),
+            message
+          });
+        }
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Message sent successfully',
+      data: message
+    });
+  } catch (error) {
+    console.error('Error in sendGroupMessage:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de l\'envoi du message au groupe'
+    });
+  }
+};
+
+
 module.exports = exports;
