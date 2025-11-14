@@ -117,7 +117,7 @@ exports.getOrCreateDirectConversation = async (req, res) => {
 exports.createGroup = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const { name, participants, description } = req.body;
+    let { name, participants, description } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({
@@ -126,29 +126,56 @@ exports.createGroup = async (req, res) => {
       });
     }
 
-    if (!participants || participants.length < 2) {
+    // Sécuriser la liste des participants
+    if (!Array.isArray(participants)) {
+      participants = [];
+    }
+
+    // Normaliser en string + remove doublons
+    const userIdStr = userId.toString();
+    let normalized = [...new Set(participants.map((p) => p.toString()))];
+
+    // ⚠️ Ne pas inclure le créateur dans la liste des participants à vérifier
+    normalized = normalized.filter((id) => id !== userIdStr);
+
+    // Au moins 2 autres personnes pour faire un "vrai" groupe (créateur + 2 amis = 3)
+    if (normalized.length < 2) {
       return res.status(400).json({
         success: false,
         message: 'At least 2 participants are required'
       });
     }
 
-    // Vérifier que tous les participants sont amis avec le créateur
-    const friendships = await Promise.all(
-      participants.map((p) => Friendship.areFriends(userId, p))
+    // Vérifier quels participants sont réellement amis avec le créateur
+    const friendshipChecks = await Promise.all(
+      normalized.map(async (p) => ({
+        id: p,
+        ok: await Friendship.areFriends(userId, p)
+      }))
     );
 
-    if (friendships.some((f) => !f)) {
+    const validParticipants = friendshipChecks
+      .filter((f) => f.ok)
+      .map((f) => f.id);
+
+    const invalidParticipants = friendshipChecks
+      .filter((f) => !f.ok)
+      .map((f) => f.id);
+
+    // Si après filtrage il reste moins de 2 amis -> on ne crée pas le groupe
+    if (validParticipants.length < 2) {
       return res.status(403).json({
         success: false,
-        message: 'You can only add friends to groups'
+        message: 'You can only create a group with at least two friends',
+        invalidParticipants
       });
     }
 
+    // Création du groupe (Conversation.createGroup ajoute déjà le créateur)
     const group = await Conversation.createGroup(
       userId,
       name.trim(),
-      participants,
+      validParticipants,
       description
     );
 
@@ -160,30 +187,40 @@ exports.createGroup = async (req, res) => {
       created_by: 'SYSTEM'
     });
 
-    // Émettre événement Socket.IO à tous les participants
+    // Émettre événement Socket.IO à tous les participants + créateur
     const io = req.app.get('io');
     if (io) {
-      participants.forEach((participantId) => {
-        io.to(participantId.toString()).emit('group-created', {
+      const recipients = [
+        userIdStr,
+        ...validParticipants.map((id) => id.toString())
+      ];
+
+      recipients.forEach((participantId) => {
+        io.to(participantId).emit('group-created', {
           group,
           createdBy: userId
         });
       });
     }
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: 'Group created successfully',
-      data: group
+      message:
+        invalidParticipants.length > 0
+          ? 'Group created successfully (some users were not added because they are not your friends)'
+          : 'Group created successfully',
+      data: group,
+      invalidParticipants
     });
   } catch (error) {
     console.error('Error in createGroup:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Erreur lors de la création du groupe'
     });
   }
 };
+
 
 /**
  * @desc    Mettre à jour un groupe

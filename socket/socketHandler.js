@@ -1,4 +1,4 @@
-// socket/socketHandler.js - VERSION AVEC NOTIFICATIONS
+// socket/socketHandler.js - VERSION AVEC NOTIFICATIONS + ROOMS PAR UTILISATEUR
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Message = require('../models/Message');
@@ -6,8 +6,8 @@ const Friendship = require('../models/Friendship');
 const { createNotification } = require('../services/notificationService');
 
 // Stockage en mémoire des utilisateurs connectés
-const onlineUsers = new Map();
-const userSockets = new Map();
+const onlineUsers = new Map();   // userId -> socketId
+const userSockets = new Map();   // socketId -> userId
 
 /**
  * Middleware d'authentification Socket.IO
@@ -48,13 +48,17 @@ const initializeSocketIO = (io) => {
   // Gestion des connexions
   io.on('connection', (socket) => {
     const userId = socket.userId;
-    const userName = `${socket.user.prenom} ${socket.user.nom}`;
+    const userName = `${socket.user.prenom} ${socket.user.nom}`.trim() || socket.user.email;
 
     console.log(` User connected: ${userName} (${userId})`);
 
-    // Ajouter l'utilisateur aux utilisateurs en ligne
+    // Enregistrer l'utilisateur comme "en ligne"
     onlineUsers.set(userId, socket.id);
     userSockets.set(socket.id, userId);
+
+    // ✅ Très important : rejoindre une "room" nommée par userId
+    // Cela permet aux contrôleurs HTTP d'utiliser io.to(userId) pour pousser des événements
+    socket.join(userId.toString());
 
     // Notifier tous les clients de la liste des utilisateurs en ligne
     io.emit('online-users', {
@@ -69,10 +73,10 @@ const initializeSocketIO = (io) => {
       userName,
     });
 
-    // ============ GESTION DES MESSAGES ============
+    // ============ GESTION DES MESSAGES DIRECTS ============
 
     /**
-     * Rejoindre une conversation
+     * Rejoindre une conversation (1-to-1)
      */
     socket.on('join-conversation', async ({ friendId }) => {
       try {
@@ -119,7 +123,7 @@ const initializeSocketIO = (io) => {
             tempId,
           });
 
-          // Notifier le destinataire (notif "légère" déjà existante)
+          // Notif légère
           io.to(receiverSocketId).emit('new-message-notification', {
             senderId: userId,
             senderName: userName,
@@ -127,7 +131,7 @@ const initializeSocketIO = (io) => {
             timestamp: Date.now(),
           });
 
-          // 👉 Créer aussi une notification persistante + event unifié
+          // 👉 Notification persistante + event unifié
           try {
             const notif = await createNotification({
               userId: receiverId,
@@ -220,7 +224,6 @@ const initializeSocketIO = (io) => {
           }
         );
 
-        // Notifier l'expéditeur
         const senderSocketId = onlineUsers.get(friendId);
         if (senderSocketId) {
           io.to(senderSocketId).emit('messages-read', {
@@ -338,11 +341,8 @@ const initializeSocketIO = (io) => {
       }
     });
 
-    // ============ NOTIFICATIONS GÉNÉRALES ============
+    // ============ NOTIFICATIONS GÉNÉRALES (likes, comments, ...) ============
 
-    /**
-     * Notification de like sur post/vidéo/playlist
-     */
     socket.on(
       'send-like-notification',
       async ({ targetUserId, contentType, contentTitle, link }) => {
@@ -363,7 +363,6 @@ const initializeSocketIO = (io) => {
           });
         }
 
-        // 👉 Notif persistante + event unifié
         try {
           const notif = await createNotification({
             userId: targetUserId,
@@ -371,7 +370,7 @@ const initializeSocketIO = (io) => {
             type: 'like',
             title: 'New like',
             message: baseMessage,
-            link: link || '/dashboard', // à ajuster si besoin selon le type
+            link: link || '/dashboard',
             metadata: {
               contentType,
               contentTitle,
@@ -400,9 +399,6 @@ const initializeSocketIO = (io) => {
       }
     );
 
-    /**
-     * Notification de commentaire
-     */
     socket.on(
       'send-comment-notification',
       async ({ targetUserId, contentType, contentTitle, link }) => {
@@ -423,7 +419,6 @@ const initializeSocketIO = (io) => {
           });
         }
 
-        // 👉 Notif persistante + event unifié
         try {
           const notif = await createNotification({
             userId: targetUserId,
@@ -462,38 +457,27 @@ const initializeSocketIO = (io) => {
 
     // ============ GESTION LIVESTREAM ============
 
-    /**
-     * Rejoindre un livestream
-     */
     socket.on('join-livestream', ({ streamId }) => {
       socket.join(`livestream-${streamId}`);
       io.to(`livestream-${streamId}`).emit('viewer-joined', {
         userId,
         userName,
         viewerCount:
-          io.sockets.adapter.rooms.get(`livestream-${streamId}`)
-            ?.size || 0,
+          io.sockets.adapter.rooms.get(`livestream-${streamId}`)?.size || 0,
       });
       console.log(`📺 User ${userId} joined livestream ${streamId}`);
     });
 
-    /**
-     * Quitter un livestream
-     */
     socket.on('leave-livestream', ({ streamId }) => {
       socket.leave(`livestream-${streamId}`);
       io.to(`livestream-${streamId}`).emit('viewer-left', {
         userId,
         viewerCount:
-          io.sockets.adapter.rooms.get(`livestream-${streamId}`)
-            ?.size || 0,
+          io.sockets.adapter.rooms.get(`livestream-${streamId}`)?.size || 0,
       });
       console.log(`📺 User ${userId} left livestream ${streamId}`);
     });
 
-    /**
-     * Message de chat livestream
-     */
     socket.on('livestream-chat-message', ({ streamId, message }) => {
       io.to(`livestream-${streamId}`).emit('livestream-chat-message', {
         userId,
@@ -509,17 +493,14 @@ const initializeSocketIO = (io) => {
     socket.on('disconnect', () => {
       console.log(`❌ User disconnected: ${userName} (${userId})`);
 
-      // Retirer des utilisateurs en ligne
       onlineUsers.delete(userId);
       userSockets.delete(socket.id);
 
-      // Notifier tous les clients
       io.emit('online-users', {
         users: Array.from(onlineUsers.keys()),
         count: onlineUsers.size,
       });
 
-      // Notifier les amis du changement de statut
       broadcastToFriends(socket, 'user-status-change', {
         userId,
         status: 'offline',
