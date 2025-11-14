@@ -709,6 +709,11 @@ app.use('/api/conversations', conversationsRoutes);
 const chatActionsRouter = require('./routes/api/chatActions');
 app.use('/api/chat', chatActionsRouter);
 
+// après avoir configuré app, auth, etc.
+const notificationRoutes = require('./routes/notificationRoutes');
+app.use('/api/notifications', notificationRoutes);
+
+
 // ===== Supplémentaires =====
 console.log("\n🔧 Configuration des routes supplémentaires...");
 app.use('/api/users', require('./routes/api/userProfile'));
