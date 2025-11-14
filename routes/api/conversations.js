@@ -59,7 +59,11 @@ router.delete(
  * @desc    Archiver une conversation
  * @access  Private
  */
-router.put('/:conversationId/archive', protect, conversationsController.archiveConversation);
+router.put(
+  '/:conversationId/archive',
+  protect,
+  conversationsController.archiveConversation
+);
 
 /**
  * @route   PUT /api/conversations/:conversationId/unarchive
@@ -70,19 +74,19 @@ router.put('/:conversationId/unarchive', protect, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { conversationId } = req.params;
-    
+
     const Conversation = require('../../models/Conversation');
     const conversation = await Conversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Conversation not found'
       });
     }
-    
+
     await conversation.unarchive(userId);
-    
+
     res.status(200).json({
       success: true,
       message: 'Conversation unarchived successfully'
@@ -112,22 +116,22 @@ router.put('/:conversationId/unpin', protect, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { conversationId } = req.params;
-    
+
     const Conversation = require('../../models/Conversation');
     const conversation = await Conversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Conversation not found'
       });
     }
-    
+
     conversation.pinned = conversation.pinned.filter(
-      id => id.toString() !== userId.toString()
+      (id) => id.toString() !== userId.toString()
     );
     await conversation.save();
-    
+
     res.status(200).json({
       success: true,
       message: 'Conversation unpinned successfully'
@@ -150,32 +154,32 @@ router.put('/:conversationId/mute', protect, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { conversationId } = req.params;
-    const { duration } = req.body; // duration en heures (8, 24, 168 pour une semaine, null pour toujours)
-    
+    const { duration } = req.body; // duration en heures
+
     const Conversation = require('../../models/Conversation');
     const conversation = await Conversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Conversation not found'
       });
     }
-    
+
     // Retirer l'ancien mute si existe
     conversation.muted = conversation.muted.filter(
-      m => m.user.toString() !== userId.toString()
+      (m) => m.user.toString() !== userId.toString()
     );
-    
+
     // Ajouter le nouveau mute
     const muteEntry = { user: userId };
     if (duration) {
       muteEntry.until = new Date(Date.now() + duration * 60 * 60 * 1000);
     }
     conversation.muted.push(muteEntry);
-    
+
     await conversation.save();
-    
+
     res.status(200).json({
       success: true,
       message: 'Conversation muted successfully'
@@ -198,22 +202,22 @@ router.put('/:conversationId/unmute', protect, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { conversationId } = req.params;
-    
+
     const Conversation = require('../../models/Conversation');
     const conversation = await Conversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Conversation not found'
       });
     }
-    
+
     conversation.muted = conversation.muted.filter(
-      m => m.user.toString() !== userId.toString()
+      (m) => m.user.toString() !== userId.toString()
     );
     await conversation.save();
-    
+
     res.status(200).json({
       success: true,
       message: 'Conversation unmuted successfully'
@@ -227,8 +231,26 @@ router.put('/:conversationId/unmute', protect, async (req, res) => {
   }
 });
 
-router.get('/groups/:groupId/messages', auth, conversationsController.getGroupMessages);
-router.post('/groups/:groupId/messages', auth, conversationsController.sendGroupMessage);
+/**
+ * @route   GET /api/conversations/groups/:groupId/messages
+ * @desc    Récupérer les messages d'un groupe
+ * @access  Private
+ */
+router.get(
+  '/groups/:groupId/messages',
+  protect,
+  conversationsController.getGroupMessages
+);
 
+/**
+ * @route   POST /api/conversations/groups/:groupId/messages
+ * @desc    Envoyer un message dans un groupe
+ * @access  Private
+ */
+router.post(
+  '/groups/:groupId/messages',
+  protect,
+  conversationsController.sendGroupMessage
+);
 
 module.exports = router;

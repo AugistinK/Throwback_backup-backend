@@ -14,17 +14,17 @@ exports.getConversations = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const userObjectId = new mongoose.Types.ObjectId(userId);
-    
+
     // Récupérer les conversations où l'utilisateur est participant
     const conversations = await Conversation.find({
       participants: userObjectId,
       archivedBy: { $ne: userObjectId }
     })
-    .populate('participants', 'nom prenom email photo_profil')
-    .populate('lastMessage')
-    .populate('groupCreator groupAdmins', 'nom prenom')
-    .sort({ lastMessageAt: -1 });
-    
+      .populate('participants', 'nom prenom email photo_profil')
+      .populate('lastMessage')
+      .populate('groupCreator groupAdmins', 'nom prenom')
+      .sort({ lastMessageAt: -1 });
+
     // Pour chaque conversation, calculer le nombre de messages non lus
     const conversationsWithUnread = await Promise.all(
       conversations.map(async (conv) => {
@@ -34,7 +34,7 @@ exports.getConversations = async (req, res) => {
           read: false,
           deleted: false
         });
-        
+
         return {
           _id: conv._id,
           type: conv.type,
@@ -47,12 +47,14 @@ exports.getConversations = async (req, res) => {
           lastMessage: conv.lastMessage,
           lastMessageAt: conv.lastMessageAt,
           unreadCount,
-          isPinned: conv.pinned.includes(userObjectId),
-          isMuted: conv.muted.some(m => m.user.toString() === userId)
+          isPinned: Array.isArray(conv.pinned)
+            && conv.pinned.some((id) => id.toString() === userId.toString()),
+          isMuted: Array.isArray(conv.muted)
+            && conv.muted.some((m) => m.user && m.user.toString() === userId.toString())
         };
       })
     );
-    
+
     res.status(200).json({
       success: true,
       data: conversationsWithUnread
@@ -75,14 +77,14 @@ exports.getOrCreateDirectConversation = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { friendId } = req.body;
-    
+
     if (!friendId) {
       return res.status(400).json({
         success: false,
         message: 'Friend ID is required'
       });
     }
-    
+
     // Vérifier si les utilisateurs sont amis
     const areFriends = await Friendship.areFriends(userId, friendId);
     if (!areFriends) {
@@ -91,9 +93,9 @@ exports.getOrCreateDirectConversation = async (req, res) => {
         message: 'You can only message your friends'
       });
     }
-    
+
     const conversation = await Conversation.getOrCreateDirectConversation(userId, friendId);
-    
+
     res.status(200).json({
       success: true,
       data: conversation
@@ -116,40 +118,40 @@ exports.createGroup = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { name, participants, description } = req.body;
-    
+
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
         message: 'Group name is required'
       });
     }
-    
+
     if (!participants || participants.length < 2) {
       return res.status(400).json({
         success: false,
         message: 'At least 2 participants are required'
       });
     }
-    
+
     // Vérifier que tous les participants sont amis avec le créateur
     const friendships = await Promise.all(
-      participants.map(p => Friendship.areFriends(userId, p))
+      participants.map((p) => Friendship.areFriends(userId, p))
     );
-    
-    if (friendships.some(f => !f)) {
+
+    if (friendships.some((f) => !f)) {
       return res.status(403).json({
         success: false,
         message: 'You can only add friends to groups'
       });
     }
-    
+
     const group = await Conversation.createGroup(
       userId,
       name.trim(),
       participants,
       description
     );
-    
+
     // Log action
     await LogAction.create({
       type_action: 'GROUP_CREATED',
@@ -157,16 +159,18 @@ exports.createGroup = async (req, res) => {
       id_user: userId,
       created_by: 'SYSTEM'
     });
-    
+
     // Émettre événement Socket.IO à tous les participants
     const io = req.app.get('io');
-    participants.forEach(participantId => {
-      io.to(participantId).emit('group-created', {
-        group,
-        createdBy: userId
+    if (io) {
+      participants.forEach((participantId) => {
+        io.to(participantId.toString()).emit('group-created', {
+          group,
+          createdBy: userId
+        });
       });
-    });
-    
+    }
+
     res.status(201).json({
       success: true,
       message: 'Group created successfully',
@@ -191,43 +195,49 @@ exports.updateGroup = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const { groupId } = req.params;
     const { name, description, avatar } = req.body;
-    
+
     const conversation = await Conversation.findOne({
       _id: groupId,
       type: 'group'
     });
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Group not found'
       });
     }
-    
+
     // Vérifier que l'utilisateur est admin
-    if (!conversation.groupAdmins.includes(userId)) {
+    if (
+      !Array.isArray(conversation.groupAdmins) ||
+      !conversation.groupAdmins.some((id) => id.toString() === userId.toString())
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Only admins can update group'
       });
     }
-    
+
     if (name) conversation.groupName = name.trim();
     if (description !== undefined) conversation.groupDescription = description;
     if (avatar) conversation.groupAvatar = avatar;
     conversation.modified_date = Date.now();
-    
+
     await conversation.save();
     await conversation.populate('participants groupCreator groupAdmins');
-    
+
     // Notifier tous les participants
     const io = req.app.get('io');
-    conversation.participants.forEach(p => {
-      io.to(p._id.toString()).emit('group-updated', {
-        group: conversation
+    if (io && Array.isArray(conversation.participants)) {
+      conversation.participants.forEach((p) => {
+        const pid = p._id ? p._id.toString() : p.toString();
+        io.to(pid).emit('group-updated', {
+          group: conversation
+        });
       });
-    });
-    
+    }
+
     res.status(200).json({
       success: true,
       message: 'Group updated successfully',
@@ -252,27 +262,30 @@ exports.addParticipantToGroup = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const { groupId } = req.params;
     const { participantId } = req.body;
-    
+
     const conversation = await Conversation.findOne({
       _id: groupId,
       type: 'group'
     });
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Group not found'
       });
     }
-    
+
     // Vérifier que l'utilisateur est admin
-    if (!conversation.groupAdmins.includes(userId)) {
+    if (
+      !Array.isArray(conversation.groupAdmins) ||
+      !conversation.groupAdmins.some((id) => id.toString() === userId.toString())
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Only admins can add participants'
       });
     }
-    
+
     // Vérifier que le participant est ami avec l'admin
     const areFriends = await Friendship.areFriends(userId, participantId);
     if (!areFriends) {
@@ -281,17 +294,19 @@ exports.addParticipantToGroup = async (req, res) => {
         message: 'You can only add friends'
       });
     }
-    
+
     await conversation.addParticipant(participantId, userId);
     await conversation.populate('participants groupAdmins');
-    
+
     // Notifier le nouveau participant
     const io = req.app.get('io');
-    io.to(participantId).emit('added-to-group', {
-      group: conversation,
-      addedBy: userId
-    });
-    
+    if (io) {
+      io.to(participantId.toString()).emit('added-to-group', {
+        group: conversation,
+        addedBy: userId
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Participant added successfully',
@@ -315,39 +330,43 @@ exports.removeParticipantFromGroup = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { groupId, participantId } = req.params;
-    
+
     const conversation = await Conversation.findOne({
       _id: groupId,
       type: 'group'
     });
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Group not found'
       });
     }
-    
+
     // Vérifier que l'utilisateur est admin ou se retire lui-même
-    const isAdmin = conversation.groupAdmins.includes(userId);
-    const isSelf = userId === participantId;
-    
+    const isAdmin =
+      Array.isArray(conversation.groupAdmins) &&
+      conversation.groupAdmins.some((id) => id.toString() === userId.toString());
+    const isSelf = userId.toString() === participantId.toString();
+
     if (!isAdmin && !isSelf) {
       return res.status(403).json({
         success: false,
         message: 'Only admins can remove participants'
       });
     }
-    
+
     await conversation.removeParticipant(participantId);
-    
+
     // Notifier le participant retiré
     const io = req.app.get('io');
-    io.to(participantId).emit('removed-from-group', {
-      groupId,
-      removedBy: userId
-    });
-    
+    if (io) {
+      io.to(participantId.toString()).emit('removed-from-group', {
+        groupId,
+        removedBy: userId
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Participant removed successfully'
@@ -370,26 +389,29 @@ exports.archiveConversation = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { conversationId } = req.params;
-    
+
     const conversation = await Conversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Conversation not found'
       });
     }
-    
+
     // Vérifier que l'utilisateur est participant
-    if (!conversation.participants.includes(userId)) {
+    if (
+      !Array.isArray(conversation.participants) ||
+      !conversation.participants.some((id) => id.toString() === userId.toString())
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Not a participant'
       });
     }
-    
+
     await conversation.archive(userId);
-    
+
     res.status(200).json({
       success: true,
       message: 'Conversation archived successfully'
@@ -412,21 +434,24 @@ exports.pinConversation = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { conversationId } = req.params;
-    
+
     const conversation = await Conversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: 'Conversation not found'
       });
     }
-    
-    if (!conversation.pinned.includes(userId)) {
+
+    if (
+      !Array.isArray(conversation.pinned) ||
+      !conversation.pinned.some((id) => id.toString() === userId.toString())
+    ) {
       conversation.pinned.push(userId);
       await conversation.save();
     }
-    
+
     res.status(200).json({
       success: true,
       message: 'Conversation pinned successfully'
@@ -450,9 +475,9 @@ exports.getGroupMessages = async (req, res) => {
     const userId = req.user.id || req.user._id;
     const { groupId } = req.params;
 
-    const page  = parseInt(req.query.page, 10)  || 1;
+    const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 50;
-    const skip  = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
     if (!mongoose.Types.ObjectId.isValid(groupId)) {
       return res.status(400).json({
@@ -592,6 +617,5 @@ exports.sendGroupMessage = async (req, res) => {
     });
   }
 };
-
 
 module.exports = exports;
