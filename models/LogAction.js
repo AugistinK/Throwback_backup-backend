@@ -136,7 +136,10 @@ const logActionSchema = new Schema(
         'CHAT_ARCHIVED',
         'CHAT_HISTORY_CLEARED',
         'USER_REPORTED',
-        'FRIEND_REMOVED'
+        'FRIEND_REMOVED',
+        'GROUP_CREATED',
+        'GROUP_MESSAGE_SENT',
+        
       
       ]
     },
