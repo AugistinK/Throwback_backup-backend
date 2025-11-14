@@ -47,10 +47,12 @@ exports.getConversations = async (req, res) => {
           lastMessage: conv.lastMessage,
           lastMessageAt: conv.lastMessageAt,
           unreadCount,
-          isPinned: Array.isArray(conv.pinned)
-            && conv.pinned.some((id) => id.toString() === userId.toString()),
-          isMuted: Array.isArray(conv.muted)
-            && conv.muted.some((m) => m.user && m.user.toString() === userId.toString())
+          isPinned:
+            Array.isArray(conv.pinned) &&
+            conv.pinned.some((id) => id.toString() === userId.toString()),
+          isMuted:
+            Array.isArray(conv.muted) &&
+            conv.muted.some((m) => m.user && m.user.toString() === userId.toString())
         };
       })
     );
@@ -94,7 +96,10 @@ exports.getOrCreateDirectConversation = async (req, res) => {
       });
     }
 
-    const conversation = await Conversation.getOrCreateDirectConversation(userId, friendId);
+    const conversation = await Conversation.getOrCreateDirectConversation(
+      userId,
+      friendId
+    );
 
     res.status(200).json({
       success: true,
@@ -220,7 +225,6 @@ exports.createGroup = async (req, res) => {
     });
   }
 };
-
 
 /**
  * @desc    Mettre à jour un groupe
@@ -353,7 +357,7 @@ exports.addParticipantToGroup = async (req, res) => {
     console.error('Error in addParticipantToGroup:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de l\'ajout du participant'
+      message: "Erreur lors de l'ajout du participant"
     });
   }
 };
@@ -457,7 +461,7 @@ exports.archiveConversation = async (req, res) => {
     console.error('Error in archiveConversation:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de l\'archivage'
+      message: "Erreur lors de l'archivage"
     });
   }
 };
@@ -497,7 +501,7 @@ exports.pinConversation = async (req, res) => {
     console.error('Error in pinConversation:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de l\'épinglage'
+      message: "Erreur lors de l'épinglage"
     });
   }
 };
@@ -609,12 +613,18 @@ exports.sendGroupMessage = async (req, res) => {
       });
     }
 
+    // ✅ IMPORTANT :
+    // Beaucoup de schémas Message exigent un champ "receiver" required:true.
+    // Pour les messages de groupe il n'y a pas de destinataire unique,
+    // on met donc le sender lui-même afin de satisfaire la validation.
     const message = await Message.create({
       conversation: conversation._id,
       sender: userId,
+      receiver: userId, // <-- clé pour éviter l'erreur 500
       content: content.trim(),
       type: type || 'text',
-      created_by: userId
+      created_by: userId,
+      isGroup: true // sera ignoré si non défini dans le schéma (strict:true)
     });
 
     await message.populate('sender', 'nom prenom email photo_profil');
@@ -622,7 +632,9 @@ exports.sendGroupMessage = async (req, res) => {
     // Log action
     await LogAction.create({
       type_action: 'GROUP_MESSAGE_SENT',
-      description_action: `Message sent in group ${conversation.groupName || conversation._id}`,
+      description_action: `Message sent in group ${
+        conversation.groupName || conversation._id
+      }`,
       id_user: userId,
       created_by: 'SYSTEM'
     });
@@ -648,9 +660,12 @@ exports.sendGroupMessage = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in sendGroupMessage:', error);
+    if (error && error.errors) {
+      console.error('Validation errors in sendGroupMessage:', error.errors);
+    }
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de l\'envoi du message au groupe'
+      message: "Erreur lors de l'envoi du message au groupe"
     });
   }
 };
