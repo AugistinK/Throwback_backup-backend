@@ -6,8 +6,8 @@ const Friendship = require('../models/Friendship');
 const { createNotification } = require('../services/notificationService');
 
 // Stockage en mémoire des utilisateurs connectés
-const onlineUsers = new Map();   // userId -> socketId
-const userSockets = new Map();   // socketId -> userId
+const onlineUsers = new Map(); // userId -> socketId
+const userSockets = new Map(); // socketId -> userId
 
 /**
  * Middleware d'authentification Socket.IO
@@ -48,7 +48,8 @@ const initializeSocketIO = (io) => {
   // Gestion des connexions
   io.on('connection', (socket) => {
     const userId = socket.userId;
-    const userName = `${socket.user.prenom} ${socket.user.nom}`.trim() || socket.user.email;
+    const userName =
+      `${socket.user.prenom} ${socket.user.nom}`.trim() || socket.user.email;
 
     console.log(` User connected: ${userName} (${userId})`);
 
@@ -295,14 +296,11 @@ const initializeSocketIO = (io) => {
     socket.on('friend-request-accepted', async ({ requesterId }) => {
       const requesterSocketId = onlineUsers.get(requesterId);
       if (requesterSocketId) {
-        io.to(requesterSocketId).emit(
-          'friend-request-was-accepted',
-          {
-            acceptedBy: userId,
-            acceptedByName: userName,
-            timestamp: Date.now(),
-          }
-        );
+        io.to(requesterSocketId).emit('friend-request-was-accepted', {
+          acceptedBy: userId,
+          acceptedByName: userName,
+          timestamp: Date.now(),
+        });
         console.log(
           ` Friend request accepted by ${userId} for ${requesterId}`
         );
@@ -391,10 +389,7 @@ const initializeSocketIO = (io) => {
             });
           }
         } catch (err) {
-          console.error(
-            'Error creating like notification:',
-            err.message
-          );
+          console.error('Error creating like notification:', err.message);
         }
       }
     );

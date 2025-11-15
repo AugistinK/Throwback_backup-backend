@@ -4,10 +4,11 @@ const { Schema } = mongoose;
 
 const NotificationSchema = new Schema(
   {
+    // utilisateur cible (celui qui reçoit la notif)
     user: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true, // utilisateur cible (celui qui reçoit la notif)
+      required: true,
       index: true,
     },
     type: {
@@ -19,7 +20,8 @@ const NotificationSchema = new Schema(
         'comment',
         'message',
         'system',
-        'content', // nouveau contenu (podcast, vidéo, short…)
+        'content', 
+        'chat_group_created', 
         'other',
       ],
       default: 'other',
@@ -36,7 +38,7 @@ const NotificationSchema = new Schema(
       trim: true,
     },
     link: {
-      type: String, // ex: "/dashboard/wall/123", "/dashboard/chat/456"
+      type: String, // ex: "/dashboard/wall/123", "/dashboard/chat?group=456"
       default: null,
     },
     read: {
@@ -44,13 +46,13 @@ const NotificationSchema = new Schema(
       default: false,
       index: true,
     },
-    // utilisateur qui a déclenché la notif (ex: celui qui like / commente)
+    // utilisateur qui a déclenché la notif (ex: celui qui like / commente / crée le groupe)
     actor: {
       type: Schema.Types.ObjectId,
       ref: 'User',
       default: null,
     },
-    // champ libre pour des infos supplémentaires (id de post, etc.)
+    // champ libre pour des infos supplémentaires (id de post, id de groupe, etc.)
     metadata: {
       type: Schema.Types.Mixed,
       default: {},

@@ -1,9 +1,10 @@
-// controllers/conversationsController.js - NOUVEAU CONTRÔLEUR
+// controllers/conversationsController.js
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Friendship = require('../models/Friendship');
 const LogAction = require('../models/LogAction');
 const mongoose = require('mongoose');
+const { createNotification } = require('../services/notificationService');
 
 /**
  * @desc    Récupérer toutes les conversations de l'utilisateur
@@ -18,7 +19,7 @@ exports.getConversations = async (req, res) => {
     // Récupérer les conversations où l'utilisateur est participant
     const conversations = await Conversation.find({
       participants: userObjectId,
-      archivedBy: { $ne: userObjectId }
+      archivedBy: { $ne: userObjectId },
     })
       .populate('participants', 'nom prenom email photo_profil')
       .populate('lastMessage')
@@ -32,7 +33,7 @@ exports.getConversations = async (req, res) => {
           conversation: conv._id,
           receiver: userObjectId,
           read: false,
-          deleted: false
+          deleted: false,
         });
 
         return {
@@ -52,20 +53,22 @@ exports.getConversations = async (req, res) => {
             conv.pinned.some((id) => id.toString() === userId.toString()),
           isMuted:
             Array.isArray(conv.muted) &&
-            conv.muted.some((m) => m.user && m.user.toString() === userId.toString())
+            conv.muted.some(
+              (m) => m.user && m.user.toString() === userId.toString()
+            ),
         };
       })
     );
 
     res.status(200).json({
       success: true,
-      data: conversationsWithUnread
+      data: conversationsWithUnread,
     });
   } catch (error) {
     console.error('Error in getConversations:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des conversations'
+      message: 'Erreur lors de la récupération des conversations',
     });
   }
 };
@@ -83,7 +86,7 @@ exports.getOrCreateDirectConversation = async (req, res) => {
     if (!friendId) {
       return res.status(400).json({
         success: false,
-        message: 'Friend ID is required'
+        message: 'Friend ID is required',
       });
     }
 
@@ -92,7 +95,7 @@ exports.getOrCreateDirectConversation = async (req, res) => {
     if (!areFriends) {
       return res.status(403).json({
         success: false,
-        message: 'You can only message your friends'
+        message: 'You can only message your friends',
       });
     }
 
@@ -103,13 +106,13 @@ exports.getOrCreateDirectConversation = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: conversation
+      data: conversation,
     });
   } catch (error) {
     console.error('Error in getOrCreateDirectConversation:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la création de la conversation'
+      message: 'Erreur lors de la création de la conversation',
     });
   }
 };
@@ -127,9 +130,11 @@ exports.createGroup = async (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Group name is required'
+        message: 'Group name is required',
       });
     }
+
+    const cleanedName = name.trim();
 
     // Sécuriser la liste des participants
     if (!Array.isArray(participants)) {
@@ -140,14 +145,14 @@ exports.createGroup = async (req, res) => {
     const userIdStr = userId.toString();
     let normalized = [...new Set(participants.map((p) => p.toString()))];
 
-    // ⚠️ Ne pas inclure le créateur dans la liste des participants à vérifier
+    // Ne pas inclure le créateur dans la liste des participants à vérifier
     normalized = normalized.filter((id) => id !== userIdStr);
 
     // Au moins 2 autres personnes pour faire un "vrai" groupe (créateur + 2 amis = 3)
     if (normalized.length < 2) {
       return res.status(400).json({
         success: false,
-        message: 'At least 2 participants are required'
+        message: 'At least 2 participants are required',
       });
     }
 
@@ -155,7 +160,7 @@ exports.createGroup = async (req, res) => {
     const friendshipChecks = await Promise.all(
       normalized.map(async (p) => ({
         id: p,
-        ok: await Friendship.areFriends(userId, p)
+        ok: await Friendship.areFriends(userId, p),
       }))
     );
 
@@ -172,14 +177,14 @@ exports.createGroup = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'You can only create a group with at least two friends',
-        invalidParticipants
+        invalidParticipants,
       });
     }
 
     // Création du groupe (Conversation.createGroup ajoute déjà le créateur)
     const group = await Conversation.createGroup(
       userId,
-      name.trim(),
+      cleanedName,
       validParticipants,
       description
     );
@@ -187,25 +192,68 @@ exports.createGroup = async (req, res) => {
     // Log action
     await LogAction.create({
       type_action: 'GROUP_CREATED',
-      description_action: `Created group: ${name}`,
+      description_action: `Created group: ${cleanedName}`,
       id_user: userId,
-      created_by: 'SYSTEM'
+      created_by: 'SYSTEM',
     });
 
-    // Émettre événement Socket.IO à tous les participants + créateur
     const io = req.app.get('io');
+
+    // Émettre événement Socket.IO à tous les participants + créateur
     if (io) {
       const recipients = [
         userIdStr,
-        ...validParticipants.map((id) => id.toString())
+        ...validParticipants.map((id) => id.toString()),
       ];
 
       recipients.forEach((participantId) => {
         io.to(participantId).emit('group-created', {
           group,
-          createdBy: userId
+          createdBy: userId,
         });
       });
+    }
+
+    // Créer une notification pour chaque membre (sauf le créateur)
+    const participantsToNotify = validParticipants.filter(
+      (id) => id.toString() !== userIdStr
+    );
+
+    for (const participantId of participantsToNotify) {
+      try {
+        const notif = await createNotification({
+          userId: participantId,
+          actorId: userId,
+          type: 'chat_group_created',
+          title: 'Nouveau groupe de discussion',
+          message: `Vous avez été ajouté au groupe "${cleanedName}"`,
+          link: `/dashboard/chat?group=${group._id.toString()}`,
+          metadata: {
+            groupId: group._id,
+            groupName: cleanedName,
+            creatorId: userId,
+          },
+        });
+
+        if (io && notif) {
+          io.to(participantId.toString()).emit('notification:new', {
+            id: notif._id.toString(),
+            type: notif.type,
+            title: notif.title,
+            message: notif.message,
+            link: notif.link,
+            read: notif.read,
+            createdAt: notif.createdAt,
+            actor: notif.actor,
+            metadata: notif.metadata || {},
+          });
+        }
+      } catch (err) {
+        console.error(
+          'Error creating group creation notification:',
+          err.message
+        );
+      }
     }
 
     return res.status(201).json({
@@ -215,13 +263,13 @@ exports.createGroup = async (req, res) => {
           ? 'Group created successfully (some users were not added because they are not your friends)'
           : 'Group created successfully',
       data: group,
-      invalidParticipants
+      invalidParticipants,
     });
   } catch (error) {
     console.error('Error in createGroup:', error);
     return res.status(500).json({
       success: false,
-      message: 'Erreur lors de la création du groupe'
+      message: 'Erreur lors de la création du groupe',
     });
   }
 };
@@ -239,24 +287,26 @@ exports.updateGroup = async (req, res) => {
 
     const conversation = await Conversation.findOne({
       _id: groupId,
-      type: 'group'
+      type: 'group',
     });
 
     if (!conversation) {
       return res.status(404).json({
         success: false,
-        message: 'Group not found'
+        message: 'Group not found',
       });
     }
 
     // Vérifier que l'utilisateur est admin
     if (
       !Array.isArray(conversation.groupAdmins) ||
-      !conversation.groupAdmins.some((id) => id.toString() === userId.toString())
+      !conversation.groupAdmins.some(
+        (id) => id.toString() === userId.toString()
+      )
     ) {
       return res.status(403).json({
         success: false,
-        message: 'Only admins can update group'
+        message: 'Only admins can update group',
       });
     }
 
@@ -274,7 +324,7 @@ exports.updateGroup = async (req, res) => {
       conversation.participants.forEach((p) => {
         const pid = p._id ? p._id.toString() : p.toString();
         io.to(pid).emit('group-updated', {
-          group: conversation
+          group: conversation,
         });
       });
     }
@@ -282,13 +332,13 @@ exports.updateGroup = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Group updated successfully',
-      data: conversation
+      data: conversation,
     });
   } catch (error) {
     console.error('Error in updateGroup:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la mise à jour du groupe'
+      message: 'Erreur lors de la mise à jour du groupe',
     });
   }
 };
@@ -306,24 +356,26 @@ exports.addParticipantToGroup = async (req, res) => {
 
     const conversation = await Conversation.findOne({
       _id: groupId,
-      type: 'group'
+      type: 'group',
     });
 
     if (!conversation) {
       return res.status(404).json({
         success: false,
-        message: 'Group not found'
+        message: 'Group not found',
       });
     }
 
     // Vérifier que l'utilisateur est admin
     if (
       !Array.isArray(conversation.groupAdmins) ||
-      !conversation.groupAdmins.some((id) => id.toString() === userId.toString())
+      !conversation.groupAdmins.some(
+        (id) => id.toString() === userId.toString()
+      )
     ) {
       return res.status(403).json({
         success: false,
-        message: 'Only admins can add participants'
+        message: 'Only admins can add participants',
       });
     }
 
@@ -332,7 +384,7 @@ exports.addParticipantToGroup = async (req, res) => {
     if (!areFriends) {
       return res.status(403).json({
         success: false,
-        message: 'You can only add friends'
+        message: 'You can only add friends',
       });
     }
 
@@ -344,20 +396,20 @@ exports.addParticipantToGroup = async (req, res) => {
     if (io) {
       io.to(participantId.toString()).emit('added-to-group', {
         group: conversation,
-        addedBy: userId
+        addedBy: userId,
       });
     }
 
     res.status(200).json({
       success: true,
       message: 'Participant added successfully',
-      data: conversation
+      data: conversation,
     });
   } catch (error) {
     console.error('Error in addParticipantToGroup:', error);
     res.status(500).json({
       success: false,
-      message: "Erreur lors de l'ajout du participant"
+      message: "Erreur lors de l'ajout du participant",
     });
   }
 };
@@ -374,26 +426,28 @@ exports.removeParticipantFromGroup = async (req, res) => {
 
     const conversation = await Conversation.findOne({
       _id: groupId,
-      type: 'group'
+      type: 'group',
     });
 
     if (!conversation) {
       return res.status(404).json({
         success: false,
-        message: 'Group not found'
+        message: 'Group not found',
       });
     }
 
     // Vérifier que l'utilisateur est admin ou se retire lui-même
     const isAdmin =
       Array.isArray(conversation.groupAdmins) &&
-      conversation.groupAdmins.some((id) => id.toString() === userId.toString());
+      conversation.groupAdmins.some(
+        (id) => id.toString() === userId.toString()
+      );
     const isSelf = userId.toString() === participantId.toString();
 
     if (!isAdmin && !isSelf) {
       return res.status(403).json({
         success: false,
-        message: 'Only admins can remove participants'
+        message: 'Only admins can remove participants',
       });
     }
 
@@ -404,19 +458,19 @@ exports.removeParticipantFromGroup = async (req, res) => {
     if (io) {
       io.to(participantId.toString()).emit('removed-from-group', {
         groupId,
-        removedBy: userId
+        removedBy: userId,
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'Participant removed successfully'
+      message: 'Participant removed successfully',
     });
   } catch (error) {
     console.error('Error in removeParticipantFromGroup:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors du retrait du participant'
+      message: 'Erreur lors du retrait du participant',
     });
   }
 };
@@ -436,18 +490,20 @@ exports.archiveConversation = async (req, res) => {
     if (!conversation) {
       return res.status(404).json({
         success: false,
-        message: 'Conversation not found'
+        message: 'Conversation not found',
       });
     }
 
     // Vérifier que l'utilisateur est participant
     if (
       !Array.isArray(conversation.participants) ||
-      !conversation.participants.some((id) => id.toString() === userId.toString())
+      !conversation.participants.some(
+        (id) => id.toString() === userId.toString()
+      )
     ) {
       return res.status(403).json({
         success: false,
-        message: 'Not a participant'
+        message: 'Not a participant',
       });
     }
 
@@ -455,13 +511,13 @@ exports.archiveConversation = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Conversation archived successfully'
+      message: 'Conversation archived successfully',
     });
   } catch (error) {
     console.error('Error in archiveConversation:', error);
     res.status(500).json({
       success: false,
-      message: "Erreur lors de l'archivage"
+      message: "Erreur lors de l'archivage",
     });
   }
 };
@@ -481,13 +537,15 @@ exports.pinConversation = async (req, res) => {
     if (!conversation) {
       return res.status(404).json({
         success: false,
-        message: 'Conversation not found'
+        message: 'Conversation not found',
       });
     }
 
     if (
       !Array.isArray(conversation.pinned) ||
-      !conversation.pinned.some((id) => id.toString() === userId.toString())
+      !conversation.pinned.some(
+        (id) => id.toString() === userId.toString()
+      )
     ) {
       conversation.pinned.push(userId);
       await conversation.save();
@@ -495,13 +553,13 @@ exports.pinConversation = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Conversation pinned successfully'
+      message: 'Conversation pinned successfully',
     });
   } catch (error) {
     console.error('Error in pinConversation:', error);
     res.status(500).json({
       success: false,
-      message: "Erreur lors de l'épinglage"
+      message: "Erreur lors de l'épinglage",
     });
   }
 };
@@ -523,7 +581,7 @@ exports.getGroupMessages = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(groupId)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid group ID'
+        message: 'Invalid group ID',
       });
     }
 
@@ -531,20 +589,20 @@ exports.getGroupMessages = async (req, res) => {
     const conversation = await Conversation.findOne({
       _id: groupId,
       type: 'group',
-      participants: new mongoose.Types.ObjectId(userId)
+      participants: new mongoose.Types.ObjectId(userId),
     });
 
     if (!conversation) {
       return res.status(404).json({
         success: false,
-        message: 'Group conversation not found or you are not a member'
+        message: 'Group conversation not found or you are not a member',
       });
     }
 
     const [messages, total] = await Promise.all([
       Message.find({
         conversation: conversation._id,
-        deleted: false
+        deleted: false,
       })
         .sort({ created_date: -1 })
         .skip(skip)
@@ -552,8 +610,8 @@ exports.getGroupMessages = async (req, res) => {
         .populate('sender', 'nom prenom email photo_profil'),
       Message.countDocuments({
         conversation: conversation._id,
-        deleted: false
-      })
+        deleted: false,
+      }),
     ]);
 
     const totalPages = Math.ceil(total / limit);
@@ -562,14 +620,14 @@ exports.getGroupMessages = async (req, res) => {
       success: true,
       data: {
         messages: messages.reverse(), // chronologique
-        pagination: { page, limit, total, totalPages }
-      }
+        pagination: { page, limit, total, totalPages },
+      },
     });
   } catch (error) {
     console.error('Error in getGroupMessages:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des messages du groupe'
+      message: 'Erreur lors de la récupération des messages du groupe',
     });
   }
 };
@@ -588,14 +646,14 @@ exports.sendGroupMessage = async (req, res) => {
     if (!content || !content.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Message content is required'
+        message: 'Message content is required',
       });
     }
 
     if (!mongoose.Types.ObjectId.isValid(groupId)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid group ID'
+        message: 'Invalid group ID',
       });
     }
 
@@ -603,31 +661,35 @@ exports.sendGroupMessage = async (req, res) => {
     const conversation = await Conversation.findOne({
       _id: groupId,
       type: 'group',
-      participants: new mongoose.Types.ObjectId(userId)
+      participants: new mongoose.Types.ObjectId(userId),
     }).populate('participants', '_id');
 
     if (!conversation) {
       return res.status(404).json({
         success: false,
-        message: 'Group conversation not found or you are not a member'
+        message: 'Group conversation not found or you are not a member',
       });
     }
 
-    // ✅ IMPORTANT :
     // Beaucoup de schémas Message exigent un champ "receiver" required:true.
     // Pour les messages de groupe il n'y a pas de destinataire unique,
     // on met donc le sender lui-même afin de satisfaire la validation.
     const message = await Message.create({
       conversation: conversation._id,
       sender: userId,
-      receiver: userId, // <-- clé pour éviter l'erreur 500
+      receiver: userId,
       content: content.trim(),
       type: type || 'text',
       created_by: userId,
-      isGroup: true // sera ignoré si non défini dans le schéma (strict:true)
+      isGroup: true,
     });
 
     await message.populate('sender', 'nom prenom email photo_profil');
+
+    // Mettre à jour le dernier message de la conversation
+    conversation.lastMessage = message._id;
+    conversation.lastMessageAt = new Date();
+    await conversation.save();
 
     // Log action
     await LogAction.create({
@@ -636,7 +698,7 @@ exports.sendGroupMessage = async (req, res) => {
         conversation.groupName || conversation._id
       }`,
       id_user: userId,
-      created_by: 'SYSTEM'
+      created_by: 'SYSTEM',
     });
 
     // Notifier les membres via Socket.IO
@@ -647,7 +709,7 @@ exports.sendGroupMessage = async (req, res) => {
         if (pid !== userId.toString()) {
           io.to(pid).emit('group-message', {
             groupId: conversation._id.toString(),
-            message
+            message,
           });
         }
       });
@@ -656,7 +718,7 @@ exports.sendGroupMessage = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Message sent successfully',
-      data: message
+      data: message,
     });
   } catch (error) {
     console.error('Error in sendGroupMessage:', error);
@@ -665,7 +727,7 @@ exports.sendGroupMessage = async (req, res) => {
     }
     res.status(500).json({
       success: false,
-      message: "Erreur lors de l'envoi du message au groupe"
+      message: "Erreur lors de l'envoi du message au groupe",
     });
   }
 };
