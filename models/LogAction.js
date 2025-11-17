@@ -139,6 +139,9 @@ const logActionSchema = new Schema(
         'FRIEND_REMOVED',
         'GROUP_CREATED',
         'GROUP_MESSAGE_SENT',
+        'ADMIN_FRIENDSHIP_DELETED',
+        'ADMIN_MESSAGE_DELETED',
+        'ADMIN_REPORT_UPDATED'
         
       
       ]

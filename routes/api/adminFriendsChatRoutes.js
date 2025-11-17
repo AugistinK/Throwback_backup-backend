@@ -1,4 +1,4 @@
-// routes/adminFriendsChatRoutes.js
+// routes/api/adminFriendsChatRoutes.js
 const express = require('express');
 const router = express.Router();
 
@@ -16,11 +16,11 @@ const {
   updateReport
 } = require('../../controllers/adminFriendsChatController');
 
-// À adapter selon ton middleware existant
-const { protect, authorize } = require('../../middleware/authMiddleware');
+// ✅ Import correct du middleware d'authentification admin
+const { protect, isAdmin } = require('../../middlewares/authMiddleware');
 
-// Toutes ces routes sont protégées & réservées aux admins
-router.use(protect, authorize('admin'));
+// ✅ Toutes ces routes sont protégées & réservées aux admins / superadmins
+router.use(protect, isAdmin);
 
 // Vue d'ensemble globale
 router.get('/overview', getOverview);
@@ -28,7 +28,7 @@ router.get('/overview', getOverview);
 // Résumé d'un utilisateur
 router.get('/users/:userId', getUserSocialSummary);
 
-// Relations d'amitié
+// Relations d’amitié
 router.get('/friendships', listFriendships);
 router.delete('/friendships/:friendshipId', deleteFriendship);
 router.get('/blocks', listBlockedRelationships);
