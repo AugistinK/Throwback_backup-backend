@@ -1,7 +1,6 @@
 // socket/socketHandler.js - VERSION AVEC NOTIFICATIONS ADMIN
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const Role = require('../models/Role');
 const Message = require('../models/Message');
 const Friendship = require('../models/Friendship');
 const { createNotification } = require('../services/notificationService');
@@ -26,9 +25,7 @@ const authenticateSocket = async (socket, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id)
-      .select('-mot_de_passe')
-      .populate('roles', 'libelle_role');
+    const user = await User.findById(decoded.id).select('-mot_de_passe');
 
     if (!user) {
       return next(new Error('User not found'));
@@ -38,12 +35,7 @@ const authenticateSocket = async (socket, next) => {
     socket.user = user;
     
     //  Vérifier si l'utilisateur est admin
-    const isAdmin = 
-      user.role === 'admin' || 
-      user.role === 'superadmin' ||
-      (Array.isArray(user.roles) && user.roles.some(r => 
-        r.libelle_role === 'admin' || r.libelle_role === 'superadmin'
-      ));
+    const isAdmin = user.role === 'admin' || user.role === 'superadmin';
     
     socket.isAdmin = isAdmin;
     
@@ -599,5 +591,5 @@ module.exports = {
   isUserOnline,
   getOnlineUsers,
   getOnlineAdminsCount,
-  emitNotificationToAdmins,  
+  emitNotificationToAdmins, //  Export de la nouvelle fonction
 };

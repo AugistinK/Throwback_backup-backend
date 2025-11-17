@@ -167,7 +167,6 @@ logActionSchema.post('save', function (doc, next) {
   (async () => {
     try {
       const User = require('./User');
-      const Role = require('./Role');
       const { createNotification } = require('../services/notificationService');
       const { emitNotificationToAdmins } = require('../socket/socketHandler');
 
@@ -193,25 +192,9 @@ logActionSchema.post('save', function (doc, next) {
         return;
       }
 
-      // 🔥 CORRECTION : Chercher les rôles admin/superadmin
-      const adminRoles = await Role.find({
-        libelle_role: { $in: ['admin', 'superadmin'] }
-      }).select('_id');
-
-      if (!adminRoles || adminRoles.length === 0) {
-        console.log('⚠️ Aucun rôle admin trouvé');
-        return;
-      }
-
-      const adminRoleIds = adminRoles.map(r => r._id);
-
-      // 🔥 CORRECTION : Chercher les users qui ont ces rôles
-      // Supporte DEUX cas : role (string) ET roles (array)
+      // 🔥 CORRECTION : Chercher directement les admins via le champ role
       const admins = await User.find({
-        $or: [
-          { role: { $in: ['admin', 'superadmin'] } },
-          { roles: { $in: adminRoleIds } }
-        ]
+        role: { $in: ['admin', 'superadmin'] }
       }).select('_id');
 
       if (!admins || admins.length === 0) {
