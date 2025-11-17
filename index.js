@@ -718,6 +718,10 @@ app.use('/api/notifications', notificationRoutes);
 const adminFriendsChatRoutes = require('./routes/api/adminFriendsChatRoutes');
 app.use('/api/admin/friends-chat', adminFriendsChatRoutes);
 
+// ===== Groups & Group Messages =====
+const groupsRoutes = require('./routes/api/groups');
+app.use('/api/groups', groupsRoutes);
+
 
 
 // ===== Supplémentaires =====
