@@ -1,11 +1,11 @@
-// controllers/messagesController.js - VERSION CORRIGÉE
+// controllers/messagesController.js - VERSION CORRIGÃ‰E
 const Message = require('../models/Message');
 const Friendship = require('../models/Friendship');
 const LogAction = require('../models/LogAction');
 const mongoose = require('mongoose');
 
 /**
- * @desc    Récupérer les conversations de l'utilisateur
+ * @desc    RÃ©cupÃ©rer les conversations de l'utilisateur
  * @route   GET /api/messages/conversations
  * @access  Private
  */
@@ -92,13 +92,13 @@ exports.getConversations = async (req, res) => {
     console.error('Error in getConversations:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des conversations'
+      message: 'Erreur lors de la rÃ©cupÃ©ration des conversations'
     });
   }
 };
 
 /**
- *  CORRECTION: Récupérer les messages d'une conversation
+ *  CORRECTION: RÃ©cupÃ©rer les messages d'une conversation
  * @route   GET /api/messages/:friendId
  * @access  Private
  */
@@ -118,7 +118,7 @@ exports.getMessages = async (req, res) => {
       });
     }
     
-    //  CORRECTION: Vérifier si les utilisateurs sont amis avec la nouvelle structure
+    //  CORRECTION: VÃ©rifier si les utilisateurs sont amis avec la nouvelle structure
     const areFriends = await Friendship.areFriends(userId, friendId);
     if (!areFriends) {
       return res.status(403).json({
@@ -147,7 +147,7 @@ exports.getMessages = async (req, res) => {
     .limit(limit)
     .populate('sender receiver', 'nom prenom photo_profil');
     
-    // Marquer les messages reçus comme lus
+    // Marquer les messages reÃ§us comme lus
     await Message.updateMany(
       {
         sender: friendId,
@@ -176,7 +176,7 @@ exports.getMessages = async (req, res) => {
     console.error('Error in getMessages:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des messages'
+      message: 'Erreur lors de la rÃ©cupÃ©ration des messages'
     });
   }
 };
@@ -206,7 +206,7 @@ exports.sendMessage = async (req, res) => {
       });
     }
     
-    //  CORRECTION: Vérifier si les utilisateurs sont amis avec la nouvelle structure
+    //  CORRECTION: VÃ©rifier si les utilisateurs sont amis avec la nouvelle structure
     const areFriends = await Friendship.areFriends(userId, receiverId);
     if (!areFriends) {
       return res.status(403).json({
@@ -318,12 +318,12 @@ exports.deleteMessage = async (req, res) => {
       });
     }
     
-    // Soft delete - marquer comme supprimé par cet utilisateur
+    // Soft delete - marquer comme supprimÃ© par cet utilisateur
     if (!message.deletedBy.includes(userId)) {
       message.deletedBy.push(userId);
     }
     
-    // Si les deux utilisateurs ont supprimé, marquer comme complètement supprimé
+    // Si les deux utilisateurs ont supprimÃ©, marquer comme complÃ¨tement supprimÃ©
     if (message.deletedBy.length === 2) {
       message.deleted = true;
     }
@@ -344,7 +344,7 @@ exports.deleteMessage = async (req, res) => {
 };
 
 /**
- * @desc    Récupérer le nombre de messages non lus
+ * @desc    RÃ©cupÃ©rer le nombre de messages non lus
  * @route   GET /api/messages/unread/count
  * @access  Private
  */
@@ -366,7 +366,7 @@ exports.getUnreadCount = async (req, res) => {
     console.error('Error in getUnreadCount:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération du nombre de messages non lus'
+      message: 'Erreur lors de la rÃ©cupÃ©ration du nombre de messages non lus'
     });
   }
 };
