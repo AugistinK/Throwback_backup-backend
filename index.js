@@ -714,6 +714,11 @@ app.use('/api/chat', chatActionsRouter);
 const notificationRoutes = require('./routes/api/notificationRoutes');
 app.use('/api/notifications', notificationRoutes);
 
+// =========Routes admin Friends and Chat==============
+const adminFriendsChatRoutes = require('./routes/api/adminFriendsChatRoutes');
+app.use('/api/admin/friends-chat', adminFriendsChatRoutes);
+
+
 
 // ===== Supplémentaires =====
 console.log("\n🔧 Configuration des routes supplémentaires...");
