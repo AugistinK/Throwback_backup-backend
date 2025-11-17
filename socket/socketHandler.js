@@ -1,6 +1,7 @@
-// socket/socketHandler.js - VERSION AVEC NOTIFICATIONS + ROOMS PAR UTILISATEUR
+// socket/socketHandler.js - VERSION AVEC NOTIFICATIONS ADMIN
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Role = require('../models/Role');
 const Message = require('../models/Message');
 const Friendship = require('../models/Friendship');
 const { createNotification } = require('../services/notificationService');
@@ -8,6 +9,10 @@ const { createNotification } = require('../services/notificationService');
 // Stockage en mémoire des utilisateurs connectés
 const onlineUsers = new Map(); // userId -> socketId
 const userSockets = new Map(); // socketId -> userId
+const adminSockets = new Set(); // Set des socketId des admins connectés
+
+// Variable globale pour stocker l'instance Socket.IO
+let ioInstance = null;
 
 /**
  * Middleware d'authentification Socket.IO
@@ -21,7 +26,9 @@ const authenticateSocket = async (socket, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select('-mot_de_passe');
+    const user = await User.findById(decoded.id)
+      .select('-mot_de_passe')
+      .populate('roles', 'libelle_role');
 
     if (!user) {
       return next(new Error('User not found'));
@@ -29,6 +36,17 @@ const authenticateSocket = async (socket, next) => {
 
     socket.userId = user._id.toString();
     socket.user = user;
+    
+    //  Vérifier si l'utilisateur est admin
+    const isAdmin = 
+      user.role === 'admin' || 
+      user.role === 'superadmin' ||
+      (Array.isArray(user.roles) && user.roles.some(r => 
+        r.libelle_role === 'admin' || r.libelle_role === 'superadmin'
+      ));
+    
+    socket.isAdmin = isAdmin;
+    
     next();
   } catch (error) {
     console.error('Socket authentication error:', error);
@@ -37,10 +55,35 @@ const authenticateSocket = async (socket, next) => {
 };
 
 /**
+ *  NOUVELLE FONCTION : Émettre une notification à tous les admins connectés
+ */
+const emitNotificationToAdmins = (notificationData) => {
+  if (!ioInstance) {
+    console.warn('⚠️ Socket.IO instance not available');
+    return;
+  }
+
+  if (adminSockets.size === 0) {
+    console.log('📭 Aucun admin connecté pour recevoir la notification');
+    return;
+  }
+
+  // Émettre à tous les admins connectés
+  adminSockets.forEach(socketId => {
+    ioInstance.to(socketId).emit('notification:new', notificationData);
+  });
+
+  console.log(`📢 Notification émise à ${adminSockets.size} admin(s) connecté(s)`);
+};
+
+/**
  * Initialiser Socket.IO
  */
 const initializeSocketIO = (io) => {
-  console.log(' Initializing Socket.IO...');
+  console.log('🔌 Initializing Socket.IO...');
+
+  // Stocker l'instance globalement
+  ioInstance = io;
 
   // Middleware d'authentification
   io.use(authenticateSocket);
@@ -51,14 +94,19 @@ const initializeSocketIO = (io) => {
     const userName =
       `${socket.user.prenom} ${socket.user.nom}`.trim() || socket.user.email;
 
-    console.log(` User connected: ${userName} (${userId})`);
+    console.log(`✅ User connected: ${userName} (${userId})`);
 
     // Enregistrer l'utilisateur comme "en ligne"
     onlineUsers.set(userId, socket.id);
     userSockets.set(socket.id, userId);
 
-    // ✅ Très important : rejoindre une "room" nommée par userId
-    // Cela permet aux contrôleurs HTTP d'utiliser io.to(userId) pour pousser des événements
+    //  Si c'est un admin, l'ajouter au Set des admins
+    if (socket.isAdmin) {
+      adminSockets.add(socket.id);
+      console.log(`👑 Admin connecté : ${userName} (Total admins: ${adminSockets.size})`);
+    }
+
+    // Rejoindre une "room" nommée par userId
     socket.join(userId.toString());
 
     // Notifier tous les clients de la liste des utilisateurs en ligne
@@ -132,7 +180,7 @@ const initializeSocketIO = (io) => {
             timestamp: Date.now(),
           });
 
-          // 👉 Notification persistante + event unifié
+          // Notification persistante + event unifié
           try {
             const notif = await createNotification({
               userId: receiverId,
@@ -160,10 +208,7 @@ const initializeSocketIO = (io) => {
               metadata: notif.metadata || {},
             });
           } catch (err) {
-            console.error(
-              'Error creating message notification:',
-              err.message
-            );
+            console.error('Error creating message notification:', err.message);
           }
         }
 
@@ -252,11 +297,9 @@ const initializeSocketIO = (io) => {
           senderName: senderName || userName,
           timestamp: Date.now(),
         });
-        console.log(
-          `🤝 Friend request sent from ${userId} to ${receiverId}`
-        );
+        console.log(`🤝 Friend request sent from ${userId} to ${receiverId}`);
 
-        // 👉 Notif persistante + event unifié
+        // Notification persistante
         try {
           const notif = await createNotification({
             userId: receiverId,
@@ -282,10 +325,7 @@ const initializeSocketIO = (io) => {
             metadata: notif.metadata || {},
           });
         } catch (err) {
-          console.error(
-            'Error creating friend request notification:',
-            err.message
-          );
+          console.error('Error creating friend request notification:', err.message);
         }
       }
     });
@@ -301,11 +341,9 @@ const initializeSocketIO = (io) => {
           acceptedByName: userName,
           timestamp: Date.now(),
         });
-        console.log(
-          ` Friend request accepted by ${userId} for ${requesterId}`
-        );
+        console.log(`✅ Friend request accepted by ${userId} for ${requesterId}`);
 
-        // 👉 Notif persistante + event unifié
+        // Notification persistante
         try {
           const notif = await createNotification({
             userId: requesterId,
@@ -331,10 +369,7 @@ const initializeSocketIO = (io) => {
             metadata: notif.metadata || {},
           });
         } catch (err) {
-          console.error(
-            'Error creating friend accepted notification:',
-            err.message
-          );
+          console.error('Error creating friend accepted notification:', err.message);
         }
       }
     });
@@ -442,10 +477,7 @@ const initializeSocketIO = (io) => {
             });
           }
         } catch (err) {
-          console.error(
-            'Error creating comment notification:',
-            err.message
-          );
+          console.error('Error creating comment notification:', err.message);
         }
       }
     );
@@ -490,6 +522,12 @@ const initializeSocketIO = (io) => {
 
       onlineUsers.delete(userId);
       userSockets.delete(socket.id);
+      
+      //  Retirer des admins connectés si c'était un admin
+      if (socket.isAdmin) {
+        adminSockets.delete(socket.id);
+        console.log(`👑 Admin déconnecté (Restants: ${adminSockets.size})`);
+      }
 
       io.emit('online-users', {
         users: Array.from(onlineUsers.keys()),
@@ -504,7 +542,7 @@ const initializeSocketIO = (io) => {
     });
   });
 
-  console.log(' Socket.IO initialized successfully');
+  console.log('✅ Socket.IO initialized successfully');
   return io;
 };
 
@@ -548,9 +586,18 @@ function getOnlineUsers() {
   return Array.from(onlineUsers.keys());
 }
 
+/**
+ *  Obtenir le nombre d'admins connectés
+ */
+function getOnlineAdminsCount() {
+  return adminSockets.size;
+}
+
 module.exports = {
   initializeSocketIO,
   getOnlineUsersCount,
   isUserOnline,
   getOnlineUsers,
+  getOnlineAdminsCount,
+  emitNotificationToAdmins,  
 };

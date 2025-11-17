@@ -1,4 +1,4 @@
-// models/LogAction.js
+// models/LogAction.js - VERSION CORRIGÉE
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
 
@@ -36,7 +36,6 @@ const logActionSchema = new Schema(
         'VIDEO_VIEW',
         'COMMENT_LIVESTREAM',
         'LIKE_LIVESTREAM',
-        'VIEW_LIVESTREAMS',
         'VIEW_LIVESTREAM',
         'VIEW_LIVESTREAM_COMMENTS',
         'DECONNEXION',
@@ -55,10 +54,6 @@ const logActionSchema = new Schema(
         'GESTION_COLLABORATEURS_PLAYLIST',
         'PLAYLIST_PARTAGEE',
         'SUPPRESSION_PLAYLIST',
-        'MODIFICATION_PLAYLIST',
-        'MEMOIRE_SIGNALEE',
-        'REPONSE_AJOUTEE',
-        'MEMOIRE_SUPPRIMEE',
         'CREATION_POST',
         'MODIFICATION_POST',
         'SUPPRESSION_POST',
@@ -79,7 +74,6 @@ const logActionSchema = new Schema(
         'SUPPRESSION_UTILISATEUR',
         'AUTO_START_LIVESTREAM',
         'REMOVE_BOOKMARK_PODCAST',
-        'SUPPRESSION_COMMENTAIRE',
         'ADD_PODCAST_MEMORY',
         'AUTO_END_LIVESTREAM',
         'ADD_PODCAST_TO_PLAYLIST',
@@ -115,11 +109,9 @@ const logActionSchema = new Schema(
         'RESTAURATION_POST',
         'RESTAURATION_MASSE_POSTS',
         'SUPPRESSION_MASSE_POSTS',
-        'SUPPRESSION_POST_ADMIN',
         'REPONSE_ADMIN_COMMENTAIRE',
         'MODERATION_COMMENTAIRE_LOT',
         'MODERATION_COMMENTAIRE',
-        'MODERATION_COMMENTAIRE_ADMIN',
         'REPONSE_COMMENTAIRE_ADMIN',
         'MODERATION_MASSE_COMMENTAIRES',
         'REJET_SIGNALEMENTS_COMMENTAIRE',
@@ -132,133 +124,185 @@ const logActionSchema = new Schema(
         'FRIEND_REQUEST_SENT',
         'FRIEND_REQUEST_ACCEPTED',
         'FRIEND_REQUEST_REJECTED',
-        'FRIEND_REQUEST_SENT',
         'CHAT_ARCHIVED',
         'CHAT_HISTORY_CLEARED',
         'USER_REPORTED',
-        'FRIEND_REMOVED',
         'GROUP_CREATED',
         'GROUP_MESSAGE_SENT',
         'ADMIN_FRIENDSHIP_DELETED',
         'ADMIN_MESSAGE_DELETED',
-        'ADMIN_REPORT_UPDATED'
-      ]
+        'ADMIN_REPORT_UPDATED',
+      ],
     },
     description_action: {
       type: String,
-      required: true
+      required: true,
     },
     id_user: {
       type: Schema.Types.ObjectId,
-      ref: 'User'
+      ref: 'User',
     },
     ip_address: String,
     user_agent: String,
     created_by: {
       type: String,
-      default: 'SYSTEM'
+      default: 'SYSTEM',
     },
     donnees_supplementaires: {
       type: Map,
-      of: mongoose.Schema.Types.Mixed
-    }
+      of: mongoose.Schema.Types.Mixed,
+    },
   },
   {
     timestamps: { createdAt: 'date_action', updatedAt: false },
-    versionKey: false
+    versionKey: false,
   }
 );
 
-// Middleware post-save pour créer des notifications admin à partir de certains logs
+/**
+ * 🔔 Hook post-save : créer des notifications pour les admins
+ */
 logActionSchema.post('save', function (doc, next) {
-  // Types d’actions qui doivent générer une notification pour les administrateurs
-  const ADMIN_NOTIFICATION_TYPES = [
-    'USER_REPORTED',
-    'COMMENT_REPORTED',
-    'SIGNALEMENT_POST',
-    'MEMOIRE_SIGNALEE',
-    'ADMIN_FRIENDSHIP_DELETED',
-    'ADMIN_MESSAGE_DELETED',
-    'ADMIN_REPORT_UPDATED'
-  ];
-
-  if (!ADMIN_NOTIFICATION_TYPES.includes(doc.type_action)) {
-    return next();
-  }
-
-  // On exécute la logique de notification de façon asynchrone sans bloquer la requête principale
+  // Exécution asynchrone sans bloquer
   (async () => {
     try {
       const User = require('./User');
+      const Role = require('./Role');
       const { createNotification } = require('../services/notificationService');
+      const { emitNotificationToAdmins } = require('../socket/socketHandler');
 
-      // Récupérer tous les utilisateurs admins / superadmins
-      const admins = await User.find({
-        role: { $in: ['admin', 'superadmin'] }
-      }).select('_id');
+      // Types de logs qui génèrent des notifications admin
+      const ADMIN_NOTIFICATION_TYPES = [
+        'CREATION_POST',
+        'SIGNALEMENT_POST',
+        'COMMENT_REPORTED',
+        'SIGNALEMENT_COMMENTAIRE',
+        'MEMOIRE_SIGNALEE',
+        'USER_REPORTED',
+        'FRIEND_REQUEST_SENT',
+        'FRIEND_REQUEST_ACCEPTED',
+        'FRIEND_REMOVED',
+        'GROUP_CREATED',
+        'GROUP_MESSAGE_SENT',
+        'ADMIN_FRIENDSHIP_DELETED',
+        'ADMIN_MESSAGE_DELETED',
+        'ADMIN_REPORT_UPDATED',
+      ];
 
-      if (!admins || admins.length === 0) {
+      if (!ADMIN_NOTIFICATION_TYPES.includes(doc.type_action)) {
         return;
       }
 
-      // Déterminer un titre / type génériques
-      let title = 'Nouvel évènement de modération';
-      let notifType = 'system';
-      let link = '/admin/logs';
+      // 🔥 CORRECTION : Chercher les rôles admin/superadmin
+      const adminRoles = await Role.find({
+        libelle_role: { $in: ['admin', 'superadmin'] }
+      }).select('_id');
 
+      if (!adminRoles || adminRoles.length === 0) {
+        console.log('⚠️ Aucun rôle admin trouvé');
+        return;
+      }
+
+      const adminRoleIds = adminRoles.map(r => r._id);
+
+      // 🔥 CORRECTION : Chercher les users qui ont ces rôles
+      // Supporte DEUX cas : role (string) ET roles (array)
+      const admins = await User.find({
+        $or: [
+          { role: { $in: ['admin', 'superadmin'] } },
+          { roles: { $in: adminRoleIds } }
+        ]
+      }).select('_id');
+
+      if (!admins || admins.length === 0) {
+        console.log('⚠️ Aucun administrateur trouvé');
+        return;
+      }
+
+      // Générer un titre lisible
+      const humanType = doc.type_action.replace(/_/g, ' ').toLowerCase();
+      let title = `Nouvelle action : ${humanType}`;
+      
       switch (doc.type_action) {
-        case 'USER_REPORTED':
-          title = 'Nouvel utilisateur signalé';
+        case 'CREATION_POST':
+          title = "Création d'un post";
+          break;
+        case 'SIGNALEMENT_POST':
+          title = 'Post signalé';
           break;
         case 'COMMENT_REPORTED':
         case 'SIGNALEMENT_COMMENTAIRE':
-          title = 'Nouveau commentaire signalé';
-          break;
-        case 'SIGNALEMENT_POST':
-          title = 'Nouveau post signalé';
+          title = 'Commentaire signalé';
           break;
         case 'MEMOIRE_SIGNALEE':
-          title = 'Nouvelle mémoire signalée';
+          title = 'Mémoire signalée';
           break;
-        case 'ADMIN_FRIENDSHIP_DELETED':
-        case 'ADMIN_MESSAGE_DELETED':
-        case 'ADMIN_REPORT_UPDATED':
-          title = 'Action d’administration effectuée';
+        case 'USER_REPORTED':
+          title = 'Utilisateur signalé';
           break;
-        default:
+        case 'FRIEND_REQUEST_SENT':
+          title = 'Nouvelle demande d\'ami';
+          break;
+        case 'GROUP_CREATED':
+          title = 'Nouveau groupe créé';
           break;
       }
 
-      const message =
-        doc.description_action ||
-        `Un évènement "${doc.type_action}" a été enregistré dans les logs.`;
+      const message = doc.description_action || `Une action "${doc.type_action}" a été enregistrée.`;
+
+      // Conversion du Map en objet
+      let extra = {};
+      if (doc.donnees_supplementaires && doc.donnees_supplementaires.size > 0) {
+        extra = Object.fromEntries(doc.donnees_supplementaires);
+      }
 
       // Créer une notification pour chaque admin
-      await Promise.all(
+      const notifications = await Promise.all(
         admins.map((admin) =>
           createNotification({
-            userId: admin._id,
-            type: notifType,
+            userId: admin._id.toString(),
+            type: 'system',
             title,
             message,
-            link,
-            actorId: doc.id_user || null,
+            link: '/admin/logs',
+            actorId: doc.id_user ? doc.id_user.toString() : null,
             metadata: {
-              logId: doc._id,
-              type_action: doc.type_action
-            }
+              logId: doc._id.toString(),
+              type_action: doc.type_action,
+              ...extra,
+            },
           })
         )
       );
+
+      // 🔥 ÉMISSION Socket.IO en temps réel
+      if (notifications.length > 0) {
+        const notificationData = {
+          id: notifications[0]._id.toString(),
+          type: notifications[0].type,
+          title: notifications[0].title,
+          message: notifications[0].message,
+          link: notifications[0].link,
+          read: false,
+          createdAt: notifications[0].createdAt,
+          actor: notifications[0].actor,
+          metadata: notifications[0].metadata || {},
+        };
+
+        // Émettre à tous les admins connectés
+        emitNotificationToAdmins(notificationData);
+        
+        console.log(`✅ Notification admin créée et émise : ${title}`);
+      }
+
     } catch (err) {
-      console.error(
-        'Erreur lors de la création de la notification admin depuis LogAction:',
-        err.message
-      );
+      console.error('❌ Erreur création notification admin:', err.message);
     }
   })();
 
-  next();
+  if (typeof next === 'function') {
+    next();
+  }
 });
 
 // Index pour optimiser les requêtes
