@@ -98,7 +98,7 @@ const logActionSchema = new Schema(
         'UPLOAD_PHOTO_COUVERTURE',
         'SUPPRESSION_PHOTO_PROFIL',
         'SUPPRESSION_PHOTO_COUVERTURE',
-        'MODIFICATION_PROFIL', 
+        'MODIFICATION_PROFIL',
         'MISE_A_JOUR_PREFERENCES',
         'PREFERENCES_MODIFIEES',
         'MODERATION_POST_ADMIN',
@@ -142,8 +142,6 @@ const logActionSchema = new Schema(
         'ADMIN_FRIENDSHIP_DELETED',
         'ADMIN_MESSAGE_DELETED',
         'ADMIN_REPORT_UPDATED'
-        
-      
       ]
     },
     description_action: {
@@ -170,6 +168,98 @@ const logActionSchema = new Schema(
     versionKey: false
   }
 );
+
+// Middleware post-save pour créer des notifications admin à partir de certains logs
+logActionSchema.post('save', function (doc, next) {
+  // Types d’actions qui doivent générer une notification pour les administrateurs
+  const ADMIN_NOTIFICATION_TYPES = [
+    'USER_REPORTED',
+    'COMMENT_REPORTED',
+    'SIGNALEMENT_POST',
+    'MEMOIRE_SIGNALEE',
+    'ADMIN_FRIENDSHIP_DELETED',
+    'ADMIN_MESSAGE_DELETED',
+    'ADMIN_REPORT_UPDATED'
+  ];
+
+  if (!ADMIN_NOTIFICATION_TYPES.includes(doc.type_action)) {
+    return next();
+  }
+
+  // On exécute la logique de notification de façon asynchrone sans bloquer la requête principale
+  (async () => {
+    try {
+      const User = require('./User');
+      const { createNotification } = require('../services/notificationService');
+
+      // Récupérer tous les utilisateurs admins / superadmins
+      const admins = await User.find({
+        role: { $in: ['admin', 'superadmin'] }
+      }).select('_id');
+
+      if (!admins || admins.length === 0) {
+        return;
+      }
+
+      // Déterminer un titre / type génériques
+      let title = 'Nouvel évènement de modération';
+      let notifType = 'system';
+      let link = '/admin/logs';
+
+      switch (doc.type_action) {
+        case 'USER_REPORTED':
+          title = 'Nouvel utilisateur signalé';
+          break;
+        case 'COMMENT_REPORTED':
+        case 'SIGNALEMENT_COMMENTAIRE':
+          title = 'Nouveau commentaire signalé';
+          break;
+        case 'SIGNALEMENT_POST':
+          title = 'Nouveau post signalé';
+          break;
+        case 'MEMOIRE_SIGNALEE':
+          title = 'Nouvelle mémoire signalée';
+          break;
+        case 'ADMIN_FRIENDSHIP_DELETED':
+        case 'ADMIN_MESSAGE_DELETED':
+        case 'ADMIN_REPORT_UPDATED':
+          title = 'Action d’administration effectuée';
+          break;
+        default:
+          break;
+      }
+
+      const message =
+        doc.description_action ||
+        `Un évènement "${doc.type_action}" a été enregistré dans les logs.`;
+
+      // Créer une notification pour chaque admin
+      await Promise.all(
+        admins.map((admin) =>
+          createNotification({
+            userId: admin._id,
+            type: notifType,
+            title,
+            message,
+            link,
+            actorId: doc.id_user || null,
+            metadata: {
+              logId: doc._id,
+              type_action: doc.type_action
+            }
+          })
+        )
+      );
+    } catch (err) {
+      console.error(
+        'Erreur lors de la création de la notification admin depuis LogAction:',
+        err.message
+      );
+    }
+  })();
+
+  next();
+});
 
 // Index pour optimiser les requêtes
 logActionSchema.index({ type_action: 1 });
