@@ -1,6 +1,6 @@
-// controllers/groupMessagesController.js - CONTRÔLEUR COMPLET POUR LA MESSAGERIE DE GROUPE
+// controllers/groupMessagesController.js - UTILISE MESSAGEGROUP
 const Conversation = require('../models/Conversation');
-const Message = require('../models/Message');
+const MessageGroup = require('../models/MessageGroup');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 
@@ -78,18 +78,28 @@ exports.getUserGroups = async (req, res) => {
       .populate('participants', 'nom prenom photo_profil')
       .populate('groupCreator', 'nom prenom')
       .populate('groupAdmins', 'nom prenom')
-      .populate({
-        path: 'lastMessage',
-        populate: {
-          path: 'sender',
-          select: 'nom prenom photo_profil'
-        }
-      })
       .sort({ lastMessageAt: -1 });
+
+    // Pour chaque groupe, obtenir le dernier message
+    const groupsWithMessages = await Promise.all(
+      groups.map(async (group) => {
+        const lastMessage = await MessageGroup.findOne({
+          groupId: group._id
+        })
+          .sort({ created_date: -1 })
+          .populate('sender', 'nom prenom photo_profil')
+          .limit(1);
+
+        return {
+          ...group.toObject(),
+          lastMessage: lastMessage || null
+        };
+      })
+    );
 
     res.status(200).json({
       success: true,
-      data: groups
+      data: groupsWithMessages
     });
   } catch (error) {
     console.error('Error fetching user groups:', error);
@@ -133,9 +143,15 @@ exports.getGroupDetails = async (req, res) => {
       });
     }
 
+    // Obtenir les statistiques du groupe
+    const stats = await MessageGroup.getGroupStats(groupId);
+
     res.status(200).json({
       success: true,
-      data: group
+      data: {
+        ...group.toObject(),
+        stats
+      }
     });
   } catch (error) {
     console.error('Error fetching group details:', error);
@@ -181,16 +197,18 @@ exports.getGroupMessages = async (req, res) => {
     }
 
     // Récupérer les messages du groupe
-    const total = await Message.countDocuments({
+    const total = await MessageGroup.countDocuments({
       groupId: groupId,
       deleted: false,
-      deletedForEveryone: false
+      deletedForEveryone: false,
+      deletedBy: { $ne: userId }
     });
 
-    const messages = await Message.find({
+    const messages = await MessageGroup.find({
       groupId: groupId,
       deleted: false,
-      deletedForEveryone: false
+      deletedForEveryone: false,
+      deletedBy: { $ne: userId }
     })
       .sort({ created_date: -1 })
       .skip(skip)
@@ -264,11 +282,10 @@ exports.sendGroupMessage = async (req, res) => {
       });
     }
 
-    // Créer le message
-    const message = await Message.create({
+    // Créer le message de groupe
+    const message = await MessageGroup.create({
       sender: userId,
       groupId: groupId,
-      isGroupMessage: true,
       content: content.trim(),
       type: type || 'text',
       replyTo: replyTo || null,
@@ -302,6 +319,100 @@ exports.sendGroupMessage = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error sending message'
+    });
+  }
+};
+
+/**
+ * @desc    Éditer un message de groupe
+ * @route   PUT /api/groups/:groupId/messages/:messageId
+ * @access  Private
+ */
+exports.editGroupMessage = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { messageId } = req.params;
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'New content is required'
+      });
+    }
+
+    const message = await MessageGroup.findOne({
+      _id: messageId,
+      sender: userId
+    });
+
+    if (!message) {
+      return res.status(404).json({
+        success: false,
+        message: 'Message not found or you are not the sender'
+      });
+    }
+
+    await message.edit(content.trim(), userId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Message edited successfully',
+      data: message
+    });
+  } catch (error) {
+    console.error('Error editing group message:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error editing message'
+    });
+  }
+};
+
+/**
+ * @desc    Supprimer un message de groupe
+ * @route   DELETE /api/groups/:groupId/messages/:messageId
+ * @access  Private
+ */
+exports.deleteGroupMessage = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { messageId } = req.params;
+    const { forEveryone } = req.body;
+
+    const message = await MessageGroup.findById(messageId);
+
+    if (!message) {
+      return res.status(404).json({
+        success: false,
+        message: 'Message not found'
+      });
+    }
+
+    // Vérifier si l'utilisateur peut supprimer ce message
+    const isSender = message.sender.toString() === userId.toString();
+    
+    if (forEveryone) {
+      if (!isSender) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only delete your own messages for everyone'
+        });
+      }
+      await message.deleteForEveryone();
+    } else {
+      await message.deleteForUser(userId);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Message deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting group message:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting message'
     });
   }
 };
@@ -551,7 +662,7 @@ exports.deleteGroup = async (req, res) => {
     }
 
     // Supprimer tous les messages du groupe
-    await Message.deleteMany({ groupId: groupId });
+    await MessageGroup.deleteMany({ groupId: groupId });
 
     // Supprimer le groupe
     await group.deleteOne();

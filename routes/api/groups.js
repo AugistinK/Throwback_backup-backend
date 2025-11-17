@@ -1,8 +1,10 @@
-// routes/api/groups.js - ROUTES API POUR LES GROUPES
+// routes/api/groups.js - ROUTES API COMPLÈTES POUR LES GROUPES
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../../middlewares/authMiddleware');
 const groupMessagesController = require('../../controllers/groupMessagesController');
+
+// ==================== GESTION DES GROUPES ====================
 
 /**
  * @route   POST /api/groups
@@ -59,6 +61,8 @@ router.delete(
   groupMessagesController.deleteGroup
 );
 
+// ==================== GESTION DES MESSAGES ====================
+
 /**
  * @route   GET /api/groups/:groupId/messages
  * @desc    Récupérer les messages d'un groupe
@@ -80,6 +84,30 @@ router.post(
   protect,
   groupMessagesController.sendGroupMessage
 );
+
+/**
+ * @route   PUT /api/groups/:groupId/messages/:messageId
+ * @desc    Éditer un message de groupe
+ * @access  Private (Sender only)
+ */
+router.put(
+  '/:groupId/messages/:messageId',
+  protect,
+  groupMessagesController.editGroupMessage
+);
+
+/**
+ * @route   DELETE /api/groups/:groupId/messages/:messageId
+ * @desc    Supprimer un message de groupe
+ * @access  Private
+ */
+router.delete(
+  '/:groupId/messages/:messageId',
+  protect,
+  groupMessagesController.deleteGroupMessage
+);
+
+// ==================== GESTION DES MEMBRES ====================
 
 /**
  * @route   POST /api/groups/:groupId/members
