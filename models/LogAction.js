@@ -132,6 +132,12 @@ const logActionSchema = new Schema(
         'ADMIN_FRIENDSHIP_DELETED',
         'ADMIN_MESSAGE_DELETED',
         'ADMIN_REPORT_UPDATED',
+        'MESSAGE_EDITED',
+        'CHAT_ARCHIVED',
+        'CHAT_HISTORY_CLEARED',
+        'USER_REPORTED',
+        'MESSAGE_DELETED',
+        'MESSAGE_FORWARDED'
       ],
     },
     description_action: {
