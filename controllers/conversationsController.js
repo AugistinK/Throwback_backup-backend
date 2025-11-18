@@ -523,7 +523,7 @@ exports.deleteGroup = async (req, res) => {
 
     // Soft delete des messages du groupe
     await Message.updateMany(
-      { conversation: conversation._id },
+      { groupId: conversation._id, isGroupMessage: true },
       { $set: { deleted: true } }
     );
 
@@ -691,7 +691,8 @@ exports.getGroupMessages = async (req, res) => {
 
     const [messages, total] = await Promise.all([
       Message.find({
-        conversation: conversation._id,
+        groupId: conversation._id,
+        isGroupMessage: true,
         deleted: false,
       })
         .sort({ created_date: -1 })
@@ -699,7 +700,8 @@ exports.getGroupMessages = async (req, res) => {
         .limit(limit)
         .populate('sender', 'nom prenom email photo_profil'),
       Message.countDocuments({
-        conversation: conversation._id,
+        groupId: conversation._id,
+        isGroupMessage: true,
         deleted: false,
       }),
     ]);
@@ -709,7 +711,7 @@ exports.getGroupMessages = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        messages: messages.reverse(), // chronologique
+        messages: messages.reverse(), // ordre chronologique
         pagination: { page, limit, total, totalPages },
       },
     });
@@ -721,6 +723,8 @@ exports.getGroupMessages = async (req, res) => {
     });
   }
 };
+
+
 
 /**
  * @desc    Envoyer un message dans un groupe de conversation
@@ -761,17 +765,14 @@ exports.sendGroupMessage = async (req, res) => {
       });
     }
 
-    // Beaucoup de schémas Message exigent un champ "receiver" required:true.
-    // Pour les messages de groupe il n'y a pas de destinataire unique,
-    // on met donc le sender lui-même afin de satisfaire la validation.
+    // Création du message de groupe avec le nouveau schéma
     const message = await Message.create({
-      conversation: conversation._id,
       sender: userId,
-      receiver: userId,
+      groupId: conversation._id,
       content: content.trim(),
       type: type || 'text',
       created_by: userId,
-      isGroup: true,
+      isGroupMessage: true,
     });
 
     await message.populate('sender', 'nom prenom email photo_profil');
@@ -821,5 +822,6 @@ exports.sendGroupMessage = async (req, res) => {
     });
   }
 };
+
 
 module.exports = exports;
