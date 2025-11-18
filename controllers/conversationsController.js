@@ -476,6 +476,96 @@ exports.removeParticipantFromGroup = async (req, res) => {
 };
 
 /**
+ * @desc    Supprimer un groupe de conversation
+ * @route   DELETE /api/conversations/groups/:groupId
+ * @access  Private
+ */
+exports.deleteGroup = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { groupId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid group ID',
+      });
+    }
+
+    const conversation = await Conversation.findOne({
+      _id: groupId,
+      type: 'group',
+    });
+
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group not found',
+      });
+    }
+
+    // Seul le créateur ou un admin peut supprimer le groupe
+    const isCreator =
+      conversation.groupCreator &&
+      conversation.groupCreator.toString() === userId.toString();
+    const isAdmin =
+      Array.isArray(conversation.groupAdmins) &&
+      conversation.groupAdmins.some(
+        (id) => id.toString() === userId.toString()
+      );
+
+    if (!isCreator && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the group creator or an admin can delete this group',
+      });
+    }
+
+    // Soft delete des messages du groupe
+    await Message.updateMany(
+      { conversation: conversation._id },
+      { $set: { deleted: true } }
+    );
+
+    // Suppression de la conversation elle-même
+    await Conversation.deleteOne({ _id: conversation._id });
+
+    // Log
+    await LogAction.create({
+      type_action: 'GROUP_DELETED',
+      description_action: `Deleted group: ${
+        conversation.groupName || conversation._id
+      }`,
+      id_user: userId,
+      created_by: 'SYSTEM',
+    });
+
+    // Notifier les participants via Socket.IO
+    const io = req.app.get('io');
+    if (io && Array.isArray(conversation.participants)) {
+      conversation.participants.forEach((p) => {
+        const pid = p._id ? p._id.toString() : p.toString();
+        io.to(pid).emit('group-deleted', {
+          groupId: groupId.toString(),
+          deletedBy: userId,
+        });
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Group deleted successfully',
+    });
+  } catch (error) {
+    console.error('Error in deleteGroup:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la suppression du groupe',
+    });
+  }
+};
+
+/**
  * @desc    Archiver une conversation
  * @route   PUT /api/conversations/:conversationId/archive
  * @access  Private

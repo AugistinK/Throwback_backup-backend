@@ -253,4 +253,12 @@ router.post(
   conversationsController.sendGroupMessage
 );
 
+// routes/conversations.js (exemple)
+router.delete(
+  '/groups/:groupId',
+  authMiddleware,
+  conversationsController.deleteGroup
+);
+
+
 module.exports = router;
