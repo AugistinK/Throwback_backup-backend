@@ -722,6 +722,9 @@ app.use('/api/admin/friends-chat', adminFriendsChatRoutes);
 // const groupsRoutes = require('./routes/api/groups');
 // app.use('/api/groups', groupsRoutes);
 
+// ===== Groups & Group Messages =====
+const supportRoutes = require('./routes/supportRoutes');
+app.use('/api/support', supportRoutes);
 
 
 // ===== Supplémentaires =====
