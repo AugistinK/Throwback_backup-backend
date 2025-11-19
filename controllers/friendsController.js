@@ -4,6 +4,8 @@ const User = require('../models/User');
 const LogAction = require('../models/LogAction');
 const mongoose = require('mongoose');
 
+const EXCLUDED_ROLES = ['admin', 'superadmin'];
+
 /**
  * @desc    Récupérer tous les amis de l'utilisateur connecté
  * @route   GET /api/friends
@@ -83,16 +85,26 @@ exports.getFriendRequests = async (req, res) => {
 exports.getFriendSuggestions = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
+
+    // Récupérer l'utilisateur courant
     const currentUser = await User.findById(userId);
-    
+
     if (!currentUser) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
+
+    // Les comptes admin/superadmin sont exclus du système d’amis
+    if (EXCLUDED_ROLES.includes(currentUser.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Les comptes administrateurs sont exclus du système d’amis'
+      });
+    }
     
-    //  Récupérer les IDs des amis existants et demandes en cours
+    //  Récupérer les IDs des relations existantes (amis, pending, blocked, etc.)
     const existingFriendships = await Friendship.find({
       $or: [
         { requester: userId },
@@ -100,19 +112,27 @@ exports.getFriendSuggestions = async (req, res) => {
       ]
     });
     
-    const excludedIds = existingFriendships.map(f => 
-      f.requester.toString() === userId.toString() ? f.receiver : f.requester
-    );
-    excludedIds.push(userId);
-    
+    const excludedIdsSet = new Set();
+    excludedIdsSet.add(String(userId));
+
+    existingFriendships.forEach(f => {
+      const requesterId = String(f.requester);
+      const receiverId = String(f.receiver);
+      const otherId = requesterId === String(userId) ? receiverId : requesterId;
+      excludedIdsSet.add(otherId);
+    });
+
+    const excludedIds = Array.from(excludedIdsSet);
+
     // Suggestions basées sur la ville
     const suggestions = await User.find({
       _id: { $nin: excludedIds },
       ville: currentUser.ville,
-      statut_compte: 'ACTIF'
+      statut_compte: 'ACTIF',
+      role: { $nin: EXCLUDED_ROLES }   // Exclure admin et superadmin
     })
     .limit(50)
-    .select('nom prenom email photo_profil ville')
+    .select('nom prenom email photo_profil ville role')
     .lean(); 
 
     const formattedSuggestions = suggestions.map(user => ({
@@ -143,20 +163,91 @@ exports.sendFriendRequest = async (req, res, next) => {
     const requester = req.user && (req.user._id || req.user.id);
     const { friendId } = req.body;
 
+    if (!friendId) {
+      return res.status(400).json({ success: false, message: 'friendId est requis' });
+    }
+
     if (!mongoose.Types.ObjectId.isValid(requester) ||
         !mongoose.Types.ObjectId.isValid(friendId) ||
         String(requester) === String(friendId)) {
       return res.status(400).json({ success:false, message:'IDs invalides' });
     }
 
-    const doc = await Friendship.findOneAndUpdate(
-      { requester, receiver: friendId },
-      { $setOnInsert: { requester, receiver: friendId, status: 'pending', created_by: String(requester) } },
-      { upsert: true, new: true, runValidators: true }
-    );
+    // Récupérer les profils des deux utilisateurs
+    const [requesterUser, targetUser] = await Promise.all([
+      User.findById(requester),
+      User.findById(friendId)
+    ]);
+
+    if (!requesterUser || !targetUser) {
+      return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
+    }
+
+    // Les comptes admin/superadmin sont exclus du système d’amis
+    if (EXCLUDED_ROLES.includes(requesterUser.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Les comptes administrateurs ne peuvent pas utiliser le système d’amis'
+      });
+    }
+
+    if (EXCLUDED_ROLES.includes(targetUser.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Vous ne pouvez pas envoyer une demande à un compte administrateur'
+      });
+    }
+
+    if (targetUser.statut_compte !== 'ACTIF') {
+      return res.status(400).json({
+        success: false,
+        message: 'Le compte cible n’est pas actif'
+      });
+    }
+
+    // Vérifier s'il existe déjà une relation entre les deux utilisateurs
+    const existing = await Friendship.findOne({
+      $or: [
+        { requester, receiver: friendId },
+        { requester: friendId, receiver: requester }
+      ]
+    });
+
+    if (existing) {
+      if (existing.status === 'accepted') {
+        return res.status(400).json({
+          success: false,
+          message: 'Vous êtes déjà amis avec cet utilisateur'
+        });
+      }
+
+      if (existing.status === 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'Une demande d’ami est déjà en attente avec cet utilisateur'
+        });
+      }
+
+      if (existing.status === 'blocked') {
+        return res.status(403).json({
+          success: false,
+          message: 'L’un des utilisateurs a bloqué l’autre'
+        });
+      }
+    }
+
+    // Créer une nouvelle demande d’ami
+    const doc = await Friendship.create({
+      requester,
+      receiver: friendId,
+      status: 'pending',
+      created_by: String(requester)
+    });
 
     return res.status(201).json({ success:true, data: doc });
-  } catch (e) { return next(e); }
+  } catch (e) { 
+    return next(e); 
+  }
 };
 
 /**
@@ -343,6 +434,7 @@ exports.removeFriend = async (req, res) => {
 exports.searchUsers = async (req, res) => {
   try {
     const { q } = req.query;
+    const currentUserId = req.user.id || req.user._id;
     
     if (!q || q.trim().length < 2) {
       return res.status(400).json({
@@ -350,17 +442,39 @@ exports.searchUsers = async (req, res) => {
         message: 'Search query must be at least 2 characters'
       });
     }
+
+    // Exclure les relations déjà existantes (amis, pending, blocked, etc.)
+    const existingFriendships = await Friendship.find({
+      $or: [
+        { requester: currentUserId },
+        { receiver: currentUserId }
+      ]
+    });
+
+    const excludedIdsSet = new Set();
+    excludedIdsSet.add(String(currentUserId));
+
+    existingFriendships.forEach(f => {
+      const requesterId = String(f.requester);
+      const receiverId = String(f.receiver);
+      const otherId = requesterId === String(currentUserId) ? receiverId : requesterId;
+      excludedIdsSet.add(otherId);
+    });
+
+    const excludedIds = Array.from(excludedIdsSet);
     
     const users = await User.find({
+      _id: { $nin: excludedIds },
       $or: [
         { nom: { $regex: q, $options: 'i' } },
         { prenom: { $regex: q, $options: 'i' } },
         { email: { $regex: q, $options: 'i' } }
       ],
-      statut_compte: 'ACTIF'
+      statut_compte: 'ACTIF',
+      role: { $nin: EXCLUDED_ROLES }    // Exclure admin/superadmin
     })
     .limit(20)
-    .select('nom prenom email photo_profil ville');
+    .select('nom prenom email photo_profil ville role');
     
     res.status(200).json({
       success: true,
