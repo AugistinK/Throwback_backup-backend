@@ -55,8 +55,8 @@ const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin: [
-process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com',
-'https://testfrontend.throwback-connect.com',
+process.env.FRONTEND_URL || 'https://throwback-connect.com',
+'https://throwback-connect.com',
 'http://localhost:3000'
     ],
     credentials: true,
@@ -134,8 +134,8 @@ app.use(cookieParser());
 // ===== CORS =====
 const corsOptions = {
   origin: [
-    process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com',
-    'https://testfrontend.throwback-connect.com',
+    process.env.FRONTEND_URL || 'https://throwback-connect.com',
+    'https://throwback-connect.com',
     'http://localhost:3000'
   ],
   credentials: true,
@@ -995,11 +995,11 @@ transport: 'websocket/polling'
 });
 
 app.get("/login", (req, res) => {
-  res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login`);
+  res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/login`);
 });
 
 app.get("/register", (req, res) => {
-  res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/register`);
+  res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/register`);
 });
 
 // ===== 404 =====
@@ -1109,7 +1109,7 @@ httpServer.listen(PORT, () => {
   console.log(` Socket.IO: Active`);
   console.log(` Online Users: ${getOnlineUsersCount()}`);
   console.log(` Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(` Frontend: ${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}`);
+  console.log(` Frontend: ${process.env.FRONTEND_URL || 'https://throwback-connect.com'}`);
   console.log(` Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`\n  CONFIGURATION:`);
   console.log(`    Trust Proxy: ${app.get('trust proxy')}`);

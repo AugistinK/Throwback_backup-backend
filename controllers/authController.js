@@ -325,7 +325,7 @@ const forgotPassword = async (req, res) => {
     await user.save();
 
     // ✅ Construire un lien DIRECT vers le front
-    const base = (process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com')
+    const base = (process.env.FRONTEND_URL || 'https://throwback-connect.com')
       .replace(/\/index\.html$/i, '')
       .replace(/\/$/, '');
     const resetLink = `${base}/reset-password?token=${encodeURIComponent(resetToken)}&message=${encodeURIComponent('Valid token, you can now set your new password')}`;
@@ -373,7 +373,7 @@ const verifyEmail = async (req, res) => {
     const user = await User.findById(id);
     if (!user) {
       console.log(" User not found");
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?error=invalid_link&message=Invalid verification link`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/login?error=invalid_link&message=Invalid verification link`);
     }
 
     // Log user object for debugging
@@ -386,7 +386,7 @@ const verifyEmail = async (req, res) => {
     // Check if user is already verified
     if (user.statut_verification) {
       console.log(" User already verified");
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?verified=true&message=Your account is already verified. You can now sign in.`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/login?verified=true&message=Your account is already verified. You can now sign in.`);
     }
 
     // Check if token exists
@@ -401,7 +401,7 @@ const verifyEmail = async (req, res) => {
 
     if (!tokenDoc) {
       console.log(" Token not found or expired");
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?error=expired_link&message=Verification link expired`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/login?error=expired_link&message=Verification link expired`);
     }
 
     // Activate account
@@ -424,10 +424,10 @@ const verifyEmail = async (req, res) => {
     console.log(" Email verified successfully");
     
     // Redirect to login page with success message (SANS ESPACE DANS L'URL)
-    res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?verified=true&message=Email verified successfully. You can now sign in.`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/login?verified=true&message=Email verified successfully. You can now sign in.`);
   } catch (error) {
     console.error(" Email verification error:", error);
-    res.redirect(`${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/login?error=server_error&message=An error occurred during verification`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/login?error=server_error&message=An error occurred during verification`);
   }
 };
 
@@ -457,7 +457,7 @@ const verifyPasswordReset = async (req, res) => {
     
     if (!user) {
       console.log("❌ Invalid or expired token");
-      const errorUrl = `${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/forgot-password?error=invalid_token&message=Invalid or expired token`;
+      const errorUrl = `${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/forgot-password?error=invalid_token&message=Invalid or expired token`;
       console.log("🔄 Redirecting to:", errorUrl);
       return res.redirect(errorUrl);
     }
@@ -465,7 +465,7 @@ const verifyPasswordReset = async (req, res) => {
     console.log("✅ Valid token for user:", user.email);
     
     // Construire l'URL de redirection
-    const redirectUrl = `${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/reset-password?token=${token}&message=Valid token, you can now set your new password`;
+    const redirectUrl = `${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/reset-password?token=${token}&message=Valid token, you can now set your new password`;
     
     // Log de l'URL de redirection complète
     console.log("🔄 Redirecting to reset password page:");
@@ -475,7 +475,7 @@ const verifyPasswordReset = async (req, res) => {
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("❌ Password reset token verification error:", error);
-    const errorUrl = `${process.env.FRONTEND_URL || 'https://testfrontend.throwback-connect.com'}/forgot-password?error=server_error&message=An error occurred`;
+    const errorUrl = `${process.env.FRONTEND_URL || 'https://throwback-connect.com'}/forgot-password?error=server_error&message=An error occurred`;
     console.log("🔄 Error redirect to:", errorUrl);
     res.redirect(errorUrl);
   }
