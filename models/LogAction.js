@@ -138,7 +138,8 @@ const logActionSchema = new Schema(
         'USER_REPORTED',
         'MESSAGE_DELETED',
         'MESSAGE_FORWARDED',
-        'FRIEND_UNBLOCKED'
+        'FRIEND_UNBLOCKED',
+        'FRIEND_UNBLOCKED_AND_RESTORED'
       ],
     },
     description_action: {

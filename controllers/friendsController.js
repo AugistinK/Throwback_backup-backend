@@ -574,17 +574,18 @@ exports.blockUser = async (req, res) => {
   }
 };
 
+
 /**
- * @desc    Débloquer un utilisateur précédemment bloqué
+ *  CORRECTION: Débloquer un utilisateur + le remettre en ami
  * @route   DELETE /api/friends/unblock/:userId
  * @access  Private
  */
 exports.unblockUser = async (req, res) => {
   try {
-    const currentUserId = req.user.id || req.user._id;
+    const userId = req.user.id || req.user._id;
     const { userId: targetUserId } = req.params;
 
-    // 1) Validation de l'id cible
+    // 1) Vérifier l'ID cible
     if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
       return res.status(400).json({
         success: false,
@@ -592,31 +593,44 @@ exports.unblockUser = async (req, res) => {
       });
     }
 
-    // 2) Vérifier qu’il existe bien une relation de blocage
-    const blockedRelation = await Friendship.findOneAndDelete({
-      requester: currentUserId,   // celui qui a bloqué
-      receiver: targetUserId,     // celui qui est bloqué
+    // 2) Supprimer la relation "blocked" si elle existe
+    await Friendship.findOneAndDelete({
+      requester: userId,
+      receiver: targetUserId,
       status: 'blocked'
     });
 
-    if (!blockedRelation) {
-      return res.status(404).json({
-        success: false,
-        message: 'Aucun blocage trouvé pour cet utilisateur'
+    // 3) Vérifier si une amitié ACCEPTÉE existe déjà (au cas où)
+    let friendship = await Friendship.findOne({
+      $or: [
+        { requester: userId, receiver: targetUserId },
+        { requester: targetUserId, receiver: userId }
+      ],
+      status: 'accepted'
+    });
+
+    // 4) Si pas encore amis, on recrée directement une amitié acceptée
+    if (!friendship) {
+      friendship = await Friendship.create({
+        requester: userId,          // celui qui débloque devient "requester"
+        receiver: targetUserId,
+        status: 'accepted',
+        created_by: String(userId)
       });
     }
 
-    // 3) (Optionnel) Log de l’action de déblocage
+    // 5) (Optionnel) Log de l’action
     await LogAction.create({
-      type_action: 'FRIEND_UNBLOCKED',
-      description_action: `User ${currentUserId} unblocked user ${targetUserId}`,
-      id_user: currentUserId,
+      type_action: 'FRIEND_UNBLOCKED_AND_RESTORED',
+      description_action: `User ${userId} unblocked and restored friendship with user ${targetUserId}`,
+      id_user: userId,
       created_by: 'SYSTEM'
     });
 
     return res.status(200).json({
       success: true,
-      message: 'User unblocked successfully'
+      message: 'User unblocked and friendship restored successfully',
+      data: friendship
     });
   } catch (error) {
     console.error('Error in unblockUser:', error);
