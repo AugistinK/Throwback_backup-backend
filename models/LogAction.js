@@ -137,7 +137,8 @@ const logActionSchema = new Schema(
         'CHAT_HISTORY_CLEARED',
         'USER_REPORTED',
         'MESSAGE_DELETED',
-        'MESSAGE_FORWARDED'
+        'MESSAGE_FORWARDED',
+        'FRIEND_UNBLOCKED'
       ],
     },
     description_action: {

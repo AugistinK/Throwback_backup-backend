@@ -575,64 +575,84 @@ exports.blockUser = async (req, res) => {
 };
 
 /**
- *  CORRECTION: Débloquer un utilisateur
+ * @desc    Débloquer un utilisateur précédemment bloqué
  * @route   DELETE /api/friends/unblock/:userId
  * @access  Private
  */
 exports.unblockUser = async (req, res) => {
   try {
-    const userId = req.user.id || req.user._id;
+    const currentUserId = req.user.id || req.user._id;
     const { userId: targetUserId } = req.params;
-    
+
+    // 1) Validation de l'id cible
     if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid user ID'
       });
     }
-    
-    await Friendship.findOneAndDelete({
-      requester: userId,
-      receiver: targetUserId,
+
+    // 2) Vérifier qu’il existe bien une relation de blocage
+    const blockedRelation = await Friendship.findOneAndDelete({
+      requester: currentUserId,   // celui qui a bloqué
+      receiver: targetUserId,     // celui qui est bloqué
       status: 'blocked'
     });
-    
-    res.status(200).json({
+
+    if (!blockedRelation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Aucun blocage trouvé pour cet utilisateur'
+      });
+    }
+
+    // 3) (Optionnel) Log de l’action de déblocage
+    await LogAction.create({
+      type_action: 'FRIEND_UNBLOCKED',
+      description_action: `User ${currentUserId} unblocked user ${targetUserId}`,
+      id_user: currentUserId,
+      created_by: 'SYSTEM'
+    });
+
+    return res.status(200).json({
       success: true,
       message: 'User unblocked successfully'
     });
   } catch (error) {
     console.error('Error in unblockUser:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Erreur lors du déblocage'
     });
   }
 };
 
+
 /**
- *  CORRECTION: Récupérer les utilisateurs bloqués
- * @route   GET /api/friends/blocked
- * @access  Private
+ * @desc   Récupérer les utilisateurs bloqués par l'utilisateur connecté
+ * @route  GET /api/friends/blocked
+ * @access Private
  */
 exports.getBlockedUsers = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    
+
+    // On cherche toutes les relations où l'utilisateur courant est le bloqueur
     const blocked = await Friendship.find({
       requester: userId,
       status: 'blocked'
     }).populate('receiver', 'nom prenom email photo_profil');
-    
+
+    // On retourne uniquement les infos de l'utilisateur bloqué
     const blockedUsers = blocked.map(b => b.receiver);
-    
-    res.status(200).json({
+
+    return res.status(200).json({
       success: true,
       data: blockedUsers
     });
   } catch (error) {
     console.error('Error in getBlockedUsers:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des utilisateurs bloqués'
     });
