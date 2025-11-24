@@ -4,10 +4,21 @@ const { Schema, model } = mongoose;
 
 // Liste des genres musicaux possibles
 const GENRES = [
-    'Pop', 'Rock', 'Hip-Hop', 'Rap', 'R&B', 'Soul', 'Jazz', 'Blues', 'Electronic', 
-    'Dance', 'House', 'Techno', 'Country', 'Folk', 'Classical', 'Opera', 'Reggae', 'Latin', 
-    'World', 'Afro', 'Alternative', 'Indie', 'Metal', 'Punk', 'Gospel', 'Funk', 'Disco', 
-    'Ska', 'Salsa', 'Bachata', 'Merengue', 'Tango', 'Other'
+    'Afrobeat', 'Afropop', 'Afro-fusion', 'Highlife', 'Hiplife', 'Mbalax', 'Soukous', 'Kizomba', 'Gqom', 'Amapiano',
+    'Kwaito', 'Juju', 'Makossa', 'Coupé-Décalé', 'Rai', 'Gnawa', 'Palm-Wine', 'Taarab', 'Afro-House', 'Latin Pop',
+    'Reggaeton', 'Salsa', 'Merengue', 'Bachata', 'Cumbia', 'Bossa Nova', 'Samba', 'MPB', 'Forró', 'Zouk',
+    'Soca', 'Calypso', 'Tango', 'Mariachi', 'Ranchera', 'Bolero', 'Timba', 'Vallenato', 'Chicha', 'Pop',
+    'Rock', 'Alternative', 'Indie', 'Country', 'Folk', 'Blues', 'Jazz', 'R&B', 'Soul', 'Funk',
+    'Disco', 'Hip-Hop', 'Rap', 'Gospel', 'Electronic', 'Dance', 'House', 'Techno', 'Trance', 'Drum & Bass',
+    'Dubstep', 'EDM', 'Ambient', 'Chillout', 'Trip Hop', 'Electro', 'Synthpop', 'Worldbeat', 'Ethno-Electronic', 'Flamenco',
+    'Fado', 'Chanson', 'French Pop', 'French Rock', 'Rap Français', 'French Electro', 'French House', 'Celtic', 'Balkan Folk', 'Gypsy/Roma',
+    'Klezmer', 'Rebetiko', 'Schlager', 'Nordic Folk', 'Indian Classical', 'Bollywood', 'Filmi', 'Bhangra', 'Ghazal', 'J-Pop',
+    'J-Rock', 'K-Pop', 'C-Pop', 'Mandopop', 'Cantopop', 'T-Pop', 'City Pop', 'Dangdut', 'OPM', 'Enka',
+    'Arabic Pop', 'Khaliji', 'Dabke', 'Persian Classical', 'Qawwali', 'Turkish Pop', 'Arabesque', 'Andalusian Music', 'Aboriginal Music', 'Hawaiian',
+    'Polynesian', 'Australian Country', 'Australian Folk', 'World', 'Fusion', 'Reggae', 'Ska', 'Afro-Latin', 'Latin Jazz', 'Ethno-Jazz',
+    'Afro-Jazz', 'Cross-Cultural Pop', 'Classical', 'Opera', 'Chamber', 'Choral', 'Contemporary Classical', 'Traditional Folk', 'Metal', 'Heavy Metal',
+    'Punk', 'Alternative Metal', 'Hard Rock', 'Post-Punk', 'Soundtrack', 'Film Score', 'Musicals', 'Anime Music', 'Game Music', 'TV Themes',
+    'Experimental', 'Spoken Word', 'Champeta', 'Other'
 ];
 
 const videoSchema = new Schema({
@@ -30,7 +41,7 @@ const videoSchema = new Schema({
   annee: { type: Number },
   decennie: { 
     type: String, 
-    enum: ['60s', '70s', '80s', '90s', '2000s', '2010s', '2020s'],
+    enum: ['60s', '70s', '80s', '90s', '2000s', '2010s'],
     index: true
   },
   vues: { type: Number, default: 0 },
