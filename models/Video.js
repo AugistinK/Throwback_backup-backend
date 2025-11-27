@@ -18,7 +18,7 @@ const GENRES = [
     'Polynesian', 'Australian Country', 'Australian Folk', 'World', 'Fusion', 'Reggae', 'Ska', 'Afro-Latin', 'Latin Jazz', 'Ethno-Jazz',
     'Afro-Jazz', 'Cross-Cultural Pop', 'Classical', 'Opera', 'Chamber', 'Choral', 'Contemporary Classical', 'Traditional Folk', 'Metal', 'Heavy Metal',
     'Punk', 'Alternative Metal', 'Hard Rock', 'Post-Punk', 'Soundtrack', 'Film Score', 'Musicals', 'Anime Music', 'Game Music', 'TV Themes',
-    'Experimental', 'Spoken Word', 'Champeta', 'Other'
+    'Experimental', 'Spoken Word', 'Champeta', 'Salsa', 'Other'
 ];
 
 const videoSchema = new Schema({
